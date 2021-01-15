@@ -415,6 +415,69 @@ impl FromStr for Algorithm {
     }
 }
 
+#[cfg(feature = "openssl")]
+impl TryFrom<&Base64urlUInt> for openssl::bn::BigNum {
+    type Error = Error;
+    fn try_from(uint: &Base64urlUInt) -> Result<Self, Self::Error> {
+        Ok(Self::from_slice(&uint.0)?)
+    }
+}
+
+#[cfg(feature = "openssl")]
+impl TryFrom<&RSAParams> for openssl::rsa::Rsa<openssl::pkey::Public> {
+    type Error = Error;
+    fn try_from(params: &RSAParams) -> Result<Self, Self::Error> {
+        use std::convert::TryInto;
+        let n = params.modulus.as_ref().ok_or(Error::MissingModulus)?;
+        let e = params.exponent.as_ref().ok_or(Error::MissingExponent)?;
+        Ok(Self::from_public_components(n.try_into()?, e.try_into()?)?)
+    }
+}
+
+#[cfg(feature = "openssl")]
+impl TryFrom<&RSAParams> for openssl::rsa::Rsa<openssl::pkey::Private> {
+    type Error = Error;
+    fn try_from(params: &RSAParams) -> Result<Self, Self::Error> {
+        if params.other_primes_info.is_some() {
+            // openssl crate doesn't have functions for multi-prime.
+            // Fallback to passing the key as DER.
+            let der = simple_asn1::der_encode(params)?;
+            return Ok(Self::private_key_from_der(&der)?);
+        }
+        use std::convert::TryInto;
+        let n = params
+            .modulus
+            .as_ref()
+            .ok_or(Error::MissingModulus)?
+            .try_into()?;
+        let e = params
+            .exponent
+            .as_ref()
+            .ok_or(Error::MissingExponent)?
+            .try_into()?;
+        let d = params
+            .private_exponent
+            .as_ref()
+            .ok_or(Error::MissingExponent)?
+            .try_into()?;
+        let mut builder = openssl::rsa::RsaPrivateKeyBuilder::new(n, e, d)?;
+        if let (Some(p), Some(q)) = (
+            params.first_prime_factor.as_ref(),
+            params.second_prime_factor.as_ref(),
+        ) {
+            builder = builder.set_factors(p.try_into()?, q.try_into()?)?;
+        }
+        if let (Some(dp), Some(dq), Some(qi)) = (
+            params.first_prime_factor_crt_exponent.as_ref(),
+            params.second_prime_factor_crt_exponent.as_ref(),
+            params.first_crt_coefficient.as_ref(),
+        ) {
+            builder = builder.set_crt_params(dp.try_into()?, dq.try_into()?, qi.try_into()?)?;
+        }
+        Ok(builder.build())
+    }
+}
+
 #[cfg(feature = "rsa")]
 impl From<&Base64urlUInt> for rsa::BigUint {
     fn from(uint: &Base64urlUInt) -> Self {

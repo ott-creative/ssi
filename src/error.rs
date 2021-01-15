@@ -6,6 +6,8 @@ use json::Error as JSONError;
 use json_ld::Error as JSONLDError;
 use json_ld::ErrorCode as JSONLDErrorCode;
 use multibase::Error as MultibaseError;
+#[cfg(feature = "openssl")]
+use openssl::error::ErrorStack as OpenSSLErrors;
 #[cfg(feature = "ring")]
 use ring::error::KeyRejected as KeyRejectedError;
 #[cfg(feature = "ring")]
@@ -119,6 +121,8 @@ pub enum Error {
     Rsa(RsaError),
     #[cfg(feature = "ed25519-compact")]
     Ed25519Compat(Ed25519CompatError),
+    #[cfg(feature = "openssl")]
+    OpenSSL(OpenSSLErrors),
     ASN1Encode(ASN1EncodeError),
     Base64(Base64Error),
     Multibase(MultibaseError),
@@ -234,6 +238,8 @@ impl fmt::Display for Error {
             Error::Rsa(e) => e.fmt(f),
             #[cfg(feature = "ed25519-compact")]
             Error::Ed25519Compat(e) => e.fmt(f),
+            #[cfg(feature = "openssl")]
+            Error::OpenSSL(e) => e.fmt(f),
             Error::Base64(e) => e.fmt(f),
             Error::Multibase(e) => e.fmt(f),
             Error::ASN1Encode(e) => e.fmt(f),
@@ -338,6 +344,13 @@ impl From<RsaError> for Error {
 impl From<Ed25519CompatError> for Error {
     fn from(err: Ed25519CompatError) -> Error {
         Error::Ed25519Compat(err)
+    }
+}
+
+#[cfg(feature = "openssl")]
+impl From<OpenSSLErrors> for Error {
+    fn from(err: OpenSSLErrors) -> Error {
+        Error::OpenSSL(err)
     }
 }
 

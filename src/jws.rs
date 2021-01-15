@@ -67,6 +67,19 @@ fn base64_encode_json<T: Serialize>(object: &T) -> Result<String, Error> {
 
 pub fn sign_bytes(algorithm: Algorithm, data: &[u8], key: &JWK) -> Result<String, Error> {
     let signature = match &key.params {
+        #[cfg(feature = "openssl")]
+        JWKParams::RSA(rsa_params) => {
+            let digest = match algorithm {
+                Algorithm::RS256 => openssl::hash::MessageDigest::sha256(),
+                _ => return Err(Error::AlgorithmNotImplemented),
+            };
+            use std::convert::TryInto;
+            let rsa_key: openssl::rsa::Rsa<openssl::pkey::Private> = rsa_params.try_into()?;
+            let pkey = openssl::pkey::PKey::from_rsa(rsa_key)?;
+            let mut signer = openssl::sign::Signer::new(digest, &pkey)?;
+            signer.update(data)?;
+            signer.sign_to_vec()?
+        }
         #[cfg(feature = "ring")]
         JWKParams::RSA(rsa_params) => {
             let key_pair = ring::signature::RsaKeyPair::try_from(rsa_params)?;
@@ -137,6 +150,19 @@ pub fn verify_bytes(
         }
     }
     match &key.params {
+        #[cfg(feature = "openssl")]
+        JWKParams::RSA(rsa_params) => {
+            let digest = match algorithm {
+                Algorithm::RS256 => openssl::hash::MessageDigest::sha256(),
+                _ => return Err(Error::AlgorithmNotImplemented),
+            };
+            use std::convert::TryInto;
+            let rsa_key: openssl::rsa::Rsa<openssl::pkey::Public> = rsa_params.try_into()?;
+            let pkey = openssl::pkey::PKey::from_rsa(rsa_key)?;
+            let mut verifier = openssl::sign::Verifier::new(digest, &pkey)?;
+            verifier.update(data)?;
+            verifier.verify(signature)?;
+        }
         #[cfg(feature = "ring")]
         JWKParams::RSA(rsa_params) => {
             use ring::signature::RsaPublicKeyComponents;

@@ -71,7 +71,7 @@ pub enum EIP712Value {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Types {
     #[serde(rename = "EIP712Domain")]
-    pub eip712_domain: StructType,
+    pub eip712_domain: Option<StructType>,
     #[serde(flatten)]
     pub types: HashMap<StructName, StructType>,
 }
@@ -348,7 +348,7 @@ impl TryFrom<Value> for EIP712Value {
 impl Types {
     pub fn get(&self, struct_name: &str) -> Option<&StructType> {
         if struct_name == "EIP712Domain" {
-            Some(&self.eip712_domain)
+            self.eip712_domain.as_ref()
         } else {
             self.types.get(struct_name)
         }
@@ -667,7 +667,8 @@ pub fn encode_data(
             if !keys.is_empty() {
                 // A key was remaining in the data that does not have a type in the struct.
                 let names: Vec<String> = keys.into_iter().collect();
-                return Err(TypedDataHashError::UntypedProperties(names));
+                // return Err(TypedDataHashError::UntypedProperties(names));
+                dbg!(names);
             }
             enc
         }
@@ -698,10 +699,10 @@ impl TypedData {
         sigopts_statements_normalized.sort_by_cached_key(|statement| String::from(statement));
 
         let types = Types {
-            eip712_domain: StructType(vec![MemberVariable {
+            eip712_domain: Some(StructType(vec![MemberVariable {
                 name: "name".to_string(),
                 type_: EIP712Type::String,
-            }]),
+            }])),
             types: vec![(
                 "LDPSigningRequest".to_string(),
                 StructType(vec![
@@ -848,7 +849,7 @@ mod tests {
     #[test]
     fn test_encode_type() {
         let types = Types {
-            eip712_domain: StructType(Vec::new()),
+            eip712_domain: Some(StructType(Vec::new())),
             types: vec![
                 (
                     "Transaction".to_string(),
@@ -1369,6 +1370,296 @@ mod tests {
         assert!(verification_result.errors.is_empty());
 
         assert_eq!(sig_hex, "0x5fb8f18f21f54c2df8a2720d0afcee7dbbb18e4b7a22ce6e8183633d63b076d329122584db769cd78b6cd5a7094ede5ceaa43317907539187f1f0d8875f99e051b");
-        // todo!();
+    }
+
+    #[async_std::test]
+    /// <https://github.com/w3c-ccg/ethereum-eip712-signature-2021-spec/pull/26/>
+    async fn verify_typed_data2() {
+        use crate::ldp::resolve_vm;
+        use crate::vc::LinkedDataProofOptions;
+
+        // Note: this is incorrect: VM id should have a fragment.
+        let vm_id = "did:pkh:eth:0xAED7EA8035eEc47E657B34eF5D020c7005487443";
+        let addr = "0xaed7ea8035eec47e657b34ef5d020c7005487443";
+        let sk_hex = "0x149195a4059ac8cafe2d56fc612f613b6b18b9265a73143c9f6d7cfbbed76b7e";
+        let sk_bytes = bytes_from_hex(sk_hex).unwrap();
+        use crate::jwk::{Base64urlUInt, ECParams, Params, JWK};
+
+        let sk = k256::SecretKey::from_bytes(&sk_bytes).unwrap();
+        let pk = sk.public_key();
+        let jwk = JWK::from(Params::EC(ECParams {
+            ecc_private_key: Some(Base64urlUInt(sk_bytes.to_vec())),
+            ..ECParams::try_from(&pk).unwrap()
+        }));
+        let hash = crate::keccak_hash::hash_public_key(&jwk).unwrap();
+        assert_eq!(hash, addr);
+
+        // #example-3
+        let test_basic_document = json!({
+            "@context": ["https://schema.org", "https://w3id.org/security/v2"],
+            "@type": "Person",
+            "firstName": "Jane",
+            "lastName": "Does",
+            "jobTitle": "Professor",
+            "telephone": "(425) 123-4567",
+            "email": "jane.doe@example.com"
+        });
+        let test_nested_document = json!({
+            "@context": ["https://schema.org", "https://w3id.org/security/v2"],
+            "@type": "Person",
+            "data": {
+              "name": {
+                "firstName": "John",
+                "lastName": "Doe"
+              },
+              "job": {
+                "jobTitle": "Professor",
+                "employer": "University of Waterloo"
+              }
+            },
+            "telephone": "(425) 123-4567"
+        });
+
+        // #basic-document-types-generation-embedded-types
+        let opts: LinkedDataProofOptions = serde_json::from_value(json!({
+            "created": "2021-08-30T13:28:02Z",
+            "verificationMethod": "did:pkh:eth:0xAED7EA8035eEc47E657B34eF5D020c7005487443",
+            "proofPurpose": "assertionMethod"
+        }))
+        .unwrap();
+
+        // #example-5
+        let proof_1: Proof = serde_json::from_value(json!({
+          "created": "2021-08-30T13:28:02Z",
+          "proofPurpose": "assertionMethod",
+          "type": "EthereumEip712Signature2021",
+          "verificationMethod": "did:pkh:eth:0xAED7EA8035eEc47E657B34eF5D020c7005487443",
+          "proofValue": "0xd8ced27b921866a9cb6fb859503714ad4be03ae70706237d05c9f113da7f4a1d7f74f9f9df4301571f5c4f253c09e1b5119a85f00760f33924d72a07d31881ec1b",
+          "eip712Domain": {
+            "domain": {},
+            "messageSchema": {
+              "Document": [
+                {
+                  "name": "@context",
+                  "type": "string[]"
+                },
+                {
+                  "name": "@type",
+                  "type": "string"
+                },
+                {
+                  "name": "email",
+                  "type": "string"
+                },
+                {
+                  "name": "firstName",
+                  "type": "string"
+                },
+                {
+                  "name": "jobTitle",
+                  "type": "string"
+                },
+                {
+                  "name": "lastName",
+                  "type": "string"
+                },
+                {
+                  "name": "telephone",
+                  "type": "string"
+                }
+              ]
+            },
+            "primaryType": "Document"
+          }
+        }))
+        .unwrap();
+
+        struct Example6Document {
+            doc: Value,
+        }
+        #[async_trait]
+        impl LinkedDataDocument for Example6Document {
+            fn get_contexts(&self) -> Result<Option<String>, crate::error::Error> {
+                Ok(None)
+            }
+            async fn to_dataset_for_signing(
+                &self,
+                _parent: Option<&(dyn LinkedDataDocument + Sync)>,
+            ) -> Result<crate::rdf::DataSet, crate::error::Error> {
+                todo!();
+            }
+
+            fn to_value(&self) -> Result<Value, crate::error::Error> {
+                Ok(self.doc.clone())
+            }
+        }
+
+        pub struct MockEthrDIDResolver {
+            doc: Document,
+        };
+        #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+        #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+        impl DIDResolver for MockEthrDIDResolver {
+            async fn resolve(
+                &self,
+                did: &str,
+                _input_metadata: &ResolutionInputMetadata,
+            ) -> (
+                ResolutionMetadata,
+                Option<Document>,
+                Option<DocumentMetadata>,
+            ) {
+                let doc: Document = match did {
+                    "did:pkh:eth:0xAED7EA8035eEc47E657B34eF5D020c7005487443" => self.doc.clone(),
+                    _ => return (ResolutionMetadata::from_error(ERROR_NOT_FOUND), None, None),
+                };
+                (
+                    ResolutionMetadata::default(),
+                    Some(doc),
+                    Some(DocumentMetadata::default()),
+                )
+            }
+        }
+
+        // #example-6
+        let input_options = json!({
+          "types": {
+            "Data": [
+              {
+                "name": "job",
+                "type": "Job"
+              },
+              {
+                "name": "name",
+                "type": "Name"
+              }
+            ],
+            "Document": [
+              {
+                "name": "@context",
+                "type": "string[]"
+              },
+              {
+                "name": "@type",
+                "type": "string"
+              },
+              {
+                "name": "data",
+                "type": "Data"
+              },
+              {
+                "name": "telephone",
+                "type": "string"
+              }
+            ],
+            "Job": [
+              {
+                "name": "employer",
+                "type": "string"
+              },
+              {
+                "name": "jobTitle",
+                "type": "string"
+              }
+            ],
+            "Name": [
+              {
+                "name": "firstName",
+                "type": "string"
+              },
+              {
+                "name": "lastName",
+                "type": "string"
+              }
+            ]
+          },
+          "domain": {},
+          "date": "2021-08-30T13:28:02Z"
+        });
+
+        // #example-7
+        let proof_2: Proof = serde_json::from_value(json!({
+          "created": "2021-08-30T13:28:02Z",
+          "proofPurpose": "assertionMethod",
+          "type": "EthereumEip712Signature2021",
+          "verificationMethod": "did:pkh:eth:0xAED7EA8035eEc47E657B34eF5D020c7005487443",
+          "proofValue": "0xc932c9f35b465f3f4f208ce7aa3335541ddb1e3d970ed36b9db29c13deadb54d53b5d87eafce0f9df6deb42e9522c079a995166d5c4f711d9ce9b6bde0747a461c",
+          "eip712Domain": {
+            "domain": {},
+            "messageSchema": {
+              "Data": [
+                {
+                  "name": "job",
+                  "type": "Job"
+                },
+                {
+                  "name": "name",
+                  "type": "Name"
+                }
+              ],
+              "EIP712Domain": [
+              ],
+              "Document": [
+                {
+                  "name": "@context",
+                  "type": "string[]"
+                },
+                {
+                  "name": "@type",
+                  "type": "string"
+                },
+                {
+                  "name": "data",
+                  "type": "Data"
+                },
+                {
+                  "name": "telephone",
+                  "type": "string"
+                }
+              ],
+              "Job": [
+                {
+                  "name": "employer",
+                  "type": "string"
+                },
+                {
+                  "name": "jobTitle",
+                  "type": "string"
+                }
+              ],
+              "Name": [
+                {
+                  "name": "firstName",
+                  "type": "string"
+                },
+                {
+                  "name": "lastName",
+                  "type": "string"
+                }
+              ]
+            },
+            "primaryType": "Document"
+          }
+        })).unwrap();
+
+        let nested_doc = Example6Document {
+            doc: test_nested_document,
+        };
+
+        let resolver = MockEthrDIDResolver {
+            doc: serde_json::from_value(json!({
+              "@context": [
+                "https://www.w3.org/ns/did/v1"
+              ],
+              "id": "did:pkh:eth:0xAED7EA8035eEc47E657B34eF5D020c7005487443",
+              "type": "EcdsaSecp256k1RecoveryMethod2020",
+              "controller": "did:pkh:eth:0xAED7EA8035eEc47E657B34eF5D020c7005487443",
+              "blockchainAccountId": "eip155:1:0xaed7ea8035eec47e657b34ef5d020c7005487443"
+            }))
+            .unwrap(),
+        };
+        let verification_result = proof_2.verify(&nested_doc, &resolver).await;
+        println!("{:#?}", verification_result);
+        assert!(verification_result.errors.is_empty());
     }
 }

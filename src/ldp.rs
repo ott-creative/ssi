@@ -432,6 +432,11 @@ pub async fn resolve_vm(
         return Err(Error::DIDURLDereference(error));
     }
     let vm = match object {
+        Content::DIDDocument(doc) => {
+            let value = serde_json::to_value(&doc)?;
+            let vmm: VerificationMethodMap = serde_json::from_value(value)?;
+            vmm
+        }
         Content::Object(Resource::VerificationMethod(vm)) => vm,
         Content::Null => return Err(Error::ResourceNotFound(verification_method.to_string())),
         _ => return Err(Error::ExpectedObject),

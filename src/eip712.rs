@@ -29,7 +29,7 @@ pub type StructName = String;
 
 /// Structured typed data as described in
 /// [Definition of typed structured data 𝕊](https://github.com/ethereum/EIPs/blob/master/EIPS/eip-712.md#definition-of-typed-structured-data-%F0%9D%95%8A)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct StructType(Vec<MemberVariable>);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -223,6 +223,34 @@ impl EIP712Value {
             _ => None,
         }
     }
+
+    fn as_struct(&self) -> Option<&HashMap<StructName, EIP712Value>> {
+        match self {
+            EIP712Value::Struct(map) => Some(map),
+            _ => None,
+        }
+    }
+
+    fn is_boolean(&self) -> bool {
+        match self {
+            EIP712Value::Bool(_) => true,
+            _ => false,
+        }
+    }
+
+    fn is_number(&self) -> bool {
+        match self {
+            EIP712Value::Integer(_) => true,
+            _ => false,
+        }
+    }
+
+    fn is_string(&self) -> bool {
+        match self {
+            EIP712Value::String(_) => true,
+            _ => false,
+        }
+    }
 }
 
 impl fmt::Display for EIP712Type {
@@ -368,6 +396,13 @@ impl TypesOrURI {
             serde_json::from_value(value).map_err(|e| DereferenceTypesError::JSON(e))?;
         Ok(types)
     }
+}
+
+fn property_to_struct_name(property_name: &str) -> StructName {
+    // CamelCase
+    let mut chars = property_name.chars();
+    let first_char = chars.next().unwrap_or_default();
+    first_char.to_uppercase().chain(chars).collect()
 }
 
 /// Hash the result of [`encodeType`]
@@ -841,10 +876,179 @@ impl TypedData {
     }
 }
 
+#[derive(Error, Debug)]
+pub enum TypesGenerationError {
+    #[error("Expected object")]
+    ExpectedObject,
+    #[error("Found empty array under property: {0}")]
+    EmptyArray(String),
+    #[error("Array inconsistency: expected type {0} under property: {1}")]
+    ArrayInconsistency(&'static str, String),
+    #[error("Array value must be boolean, number or string. Property: {0}")]
+    ComplexArrayValue(String),
+    #[error("Value must be boolean, number, string, array or struct. Property: {0}")]
+    ComplexValue(String),
+    #[error("Missing primaryType in recursive output. primaryType: {0}")]
+    MissingPrimaryTypeInRecursiveOutput(String),
+    #[error("JCS: {0}")]
+    JCS(serde_json::Error),
+}
+
+/// <#types-generation>
+/// from <https://github.com/w3c-ccg/ethereum-eip712-signature-2021-spec/pull/25>
+// Note: return type should be Types. Pending:
+// https://github.com/w3c-ccg/ethereum-eip712-signature-2021-spec/pull/26#discussion_r710066819
+pub fn generate_types(
+    doc: EIP712Value,
+    primary_type: Option<StructName>,
+) -> Result<HashMap<StructName, StructType>, TypesGenerationError> {
+    // 1
+    let mut output = HashMap::default();
+    // 2
+    // TypedDataField == MemberVariable
+    let mut types = StructType::default();
+    // 3
+    // Using JCS here probably has no effect:
+    // https://github.com/davidpdrsn/assert-json-diff
+    let doc_jcs = serde_jcs::to_string(&doc).map_err(|e| TypesGenerationError::JCS(e))?;
+    let doc: EIP712Value =
+        serde_json::from_str(&doc_jcs).map_err(|e| TypesGenerationError::JCS(e))?;
+    // 4
+    let primary_type = primary_type.unwrap_or_else(|| StructName::from("Document"));
+    // 5
+    let object = doc
+        .as_struct()
+        .ok_or(TypesGenerationError::ExpectedObject)?;
+    let mut props: Vec<(&String, &EIP712Value)> = object.iter().collect();
+    // Iterate through object properties in the order JCS would sort them.
+    // https://datatracker.ietf.org/doc/html/rfc8785#section-3.2.3
+    props.sort_by_cached_key(|(name, _value)| name.encode_utf16().collect::<Vec<u16>>());
+    for (property_name, value) in props {
+        match value {
+            // 6
+            EIP712Value::Bool(_) => {
+                // 6.1
+                types.0.push(MemberVariable {
+                    type_: EIP712Type::Bool,
+                    name: String::from(property_name),
+                });
+            }
+            EIP712Value::Integer(_) => {
+                // 6.2
+                types.0.push(MemberVariable {
+                    type_: EIP712Type::UintN(256),
+                    name: String::from(property_name),
+                });
+            }
+            EIP712Value::String(_) => {
+                // 6.3
+                types.0.push(MemberVariable {
+                    type_: EIP712Type::String,
+                    name: String::from(property_name),
+                });
+            }
+            // 7
+            EIP712Value::Array(array) => {
+                // Ensure values have same primitive type.
+                let mut values = array.into_iter();
+                let first_value = values
+                    .next()
+                    .ok_or_else(|| TypesGenerationError::EmptyArray(property_name.clone()))?;
+                match first_value {
+                    EIP712Value::Bool(_) => {
+                        // 7.1
+                        for value in values {
+                            if !value.is_boolean() {
+                                return Err(TypesGenerationError::ArrayInconsistency(
+                                    "boolean",
+                                    property_name.clone(),
+                                ));
+                            }
+                        }
+                        types.0.push(MemberVariable {
+                            type_: EIP712Type::Array(Box::new(EIP712Type::Bool)),
+                            name: String::from(property_name),
+                        });
+                    }
+                    EIP712Value::Integer(_) => {
+                        // 7.2
+                        for value in values {
+                            if !value.is_number() {
+                                return Err(TypesGenerationError::ArrayInconsistency(
+                                    "number",
+                                    property_name.clone(),
+                                ));
+                            }
+                        }
+                        types.0.push(MemberVariable {
+                            type_: EIP712Type::Array(Box::new(EIP712Type::UintN(256))),
+                            name: String::from(property_name),
+                        });
+                    }
+                    EIP712Value::String(_) => {
+                        // 7.3
+                        for value in values {
+                            if !value.is_string() {
+                                return Err(TypesGenerationError::ArrayInconsistency(
+                                    "string",
+                                    property_name.clone(),
+                                ));
+                            }
+                        }
+                        types.0.push(MemberVariable {
+                            type_: EIP712Type::Array(Box::new(EIP712Type::String)),
+                            name: String::from(property_name),
+                        });
+                    }
+                    _ => {
+                        return Err(TypesGenerationError::ComplexArrayValue(
+                            property_name.clone(),
+                        ));
+                    }
+                }
+            }
+            EIP712Value::Struct(object) => {
+                // 8
+                let mut recursive_output = generate_types(
+                    EIP712Value::Struct(object.clone()),
+                    Some(primary_type.clone()),
+                )?;
+                // 8.1
+                let recursive_types = recursive_output.remove(&primary_type).ok_or_else(|| {
+                    TypesGenerationError::MissingPrimaryTypeInRecursiveOutput(primary_type.clone())
+                })?;
+                // 8.2
+                let property_type = property_to_struct_name(property_name);
+                types.0.push(MemberVariable {
+                    name: String::from(property_name),
+                    type_: EIP712Type::Struct(property_type.clone()),
+                });
+                // 8.3
+                output.insert(property_type, recursive_types);
+                // 8.4
+                for (prop, type_) in recursive_output.into_iter() {
+                    output.insert(prop, type_);
+                }
+            }
+            _ => {
+                return Err(TypesGenerationError::ComplexValue(property_name.clone()));
+            }
+        }
+    }
+    // 9
+    output.insert(primary_type, types);
+    Ok(output)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    struct InputOptions {
+        date: Option<chrono::DateTime<chrono::Utc>>,
+    }
 
     #[test]
     fn test_encode_type() {
@@ -1066,6 +1270,158 @@ mod tests {
             bytes_to_lowerhex(&hash),
             "0x3128ae562d7141585a21f9c04e87520857ae9025d5c57293255f25d72f869b2e"
         );
+    }
+
+    lazy_static! {
+        // #example-3
+        static ref TEST_BASIC_DOCUMENT: Value = {
+            json!({
+                "@context": ["https://schema.org", "https://w3id.org/security/v2"],
+                "@type": "Person",
+                "firstName": "Jane",
+                "lastName": "Does",
+                "jobTitle": "Professor",
+                "telephone": "(425) 123-4567",
+                "email": "jane.doe@example.com"
+            })
+        };
+        static ref TEST_NESTED_DOCUMENT: Value = {
+            json!({
+                "@context": ["https://schema.org", "https://w3id.org/security/v2"],
+                "@type": "Person",
+                "data": {
+                  "name": {
+                    "firstName": "John",
+                    "lastName": "Doe"
+                  },
+                  "job": {
+                    "jobTitle": "Professor",
+                    "employer": "University of Waterloo"
+                  }
+                },
+                "telephone": "(425) 123-4567"
+            })
+        };
+    }
+
+    #[test]
+    fn test_property_sorting() {
+        // https://datatracker.ietf.org/doc/html/rfc8785#section-3.2.3
+        let object: EIP712Value = serde_json::from_str(
+            r#"{
+           "\u20ac": "Euro Sign",
+           "\r": "Carriage Return",
+           "\ufb33": "Hebrew Letter Dalet With Dagesh",
+           "1": "One",
+           "\ud83d\ude00": "Emoji: Grinning Face",
+           "\u0080": "Control",
+           "\u00f6": "Latin Small Letter O With Diaeresis"
+        }"#,
+        )
+        .unwrap();
+        let mut props: Vec<(&String, &EIP712Value)> = object.as_struct().unwrap().iter().collect();
+        props.sort_by_cached_key(|(name, _value)| name.encode_utf16().collect::<Vec<u16>>());
+        let expected_values = vec![
+            "Carriage Return",
+            "One",
+            "Control",
+            "Latin Small Letter O With Diaeresis",
+            "Euro Sign",
+            "Emoji: Grinning Face",
+            "Hebrew Letter Dalet With Dagesh",
+        ];
+        let values: Vec<String> = props
+            .iter()
+            .map(|(name_, value)| Value::from((*value).clone()).as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(values, expected_values);
+    }
+
+    #[test]
+    fn test_types_generation() {
+        // https://github.com/w3c-ccg/ethereum-eip712-signature-2021-spec/pull/25
+        // #example-1
+        let doc: EIP712Value = serde_json::from_value(json!({
+          "@context": ["https://schema.org", "https://w3id.org/security/v2"],
+          "@type": "Person",
+          "name": {
+            "first": "Jane",
+            "last": "Doe",
+          },
+          "otherData": {
+            "jobTitle": "Professor",
+            "school": "University of ExampleLand",
+          },
+          "telephone": "(425) 123-4567",
+          "email": "jane.doe@example.com",
+        }))
+        .unwrap();
+
+        // #example-2
+        let expected_types: HashMap<StructName, StructType> = serde_json::from_value(json!({
+            "Name": [
+              { "name": "first", "type": "string" },
+              { "name": "last", "type": "string" },
+            ],
+            "OtherData": [
+              { "name": "jobTitle", "type": "string" },
+              { "name": "school", "type": "string" },
+            ],
+            "Document": [
+              { "name": "@context", "type": "string[]" },
+              { "name": "@type", "type": "string" },
+              { "name": "email", "type": "string" },
+              { "name": "name", "type": "Name" },
+              { "name": "otherData", "type": "OtherData" },
+              { "name": "telephone", "type": "string" },
+            ]
+        }))
+        .unwrap();
+        let types = generate_types(doc, None).unwrap();
+        eprintln!("types: {}", serde_json::to_string_pretty(&types).unwrap());
+        let types_value = serde_json::to_value(types).unwrap();
+        let expected_types_value = serde_json::to_value(expected_types).unwrap();
+        assert_eq!(types_value, expected_types_value);
+
+        // https://github.com/w3c-ccg/ethereum-eip712-signature-2021-spec/pull/26
+        let test_basic_document: EIP712Value =
+            serde_json::from_value(TEST_BASIC_DOCUMENT.clone()).unwrap();
+        let types = generate_types(test_basic_document, None).unwrap();
+        eprintln!("types: {}", serde_json::to_string_pretty(&types).unwrap());
+        let types_value = serde_json::to_value(types).unwrap();
+        let expected_types_value: Value = json!({
+              "Document": [
+                {
+                  "name": "@context",
+                  "type": "string[]"
+                },
+                {
+                  "name": "@type",
+                  "type": "string"
+                },
+                {
+                  "name": "email",
+                  "type": "string"
+                },
+                {
+                  "name": "firstName",
+                  "type": "string"
+                },
+                {
+                  "name": "jobTitle",
+                  "type": "string"
+                },
+                {
+                  "name": "lastName",
+                  "type": "string"
+                },
+                {
+                  "name": "telephone",
+                  "type": "string"
+                }
+              ]
+        });
+        assert_eq!(types_value, expected_types_value);
     }
 
     pub struct DIDExample;
@@ -1394,32 +1750,6 @@ mod tests {
         let hash = crate::keccak_hash::hash_public_key(&jwk).unwrap();
         assert_eq!(hash, addr);
 
-        // #example-3
-        let test_basic_document = json!({
-            "@context": ["https://schema.org", "https://w3id.org/security/v2"],
-            "@type": "Person",
-            "firstName": "Jane",
-            "lastName": "Does",
-            "jobTitle": "Professor",
-            "telephone": "(425) 123-4567",
-            "email": "jane.doe@example.com"
-        });
-        let test_nested_document = json!({
-            "@context": ["https://schema.org", "https://w3id.org/security/v2"],
-            "@type": "Person",
-            "data": {
-              "name": {
-                "firstName": "John",
-                "lastName": "Doe"
-              },
-              "job": {
-                "jobTitle": "Professor",
-                "employer": "University of Waterloo"
-              }
-            },
-            "telephone": "(425) 123-4567"
-        });
-
         // #basic-document-types-generation-embedded-types
         let opts: LinkedDataProofOptions = serde_json::from_value(json!({
             "created": "2021-08-30T13:28:02Z",
@@ -1643,7 +1973,7 @@ mod tests {
         })).unwrap();
 
         let nested_doc = Example6Document {
-            doc: test_nested_document,
+            doc: TEST_NESTED_DOCUMENT.clone(),
         };
 
         let resolver = MockEthrDIDResolver {

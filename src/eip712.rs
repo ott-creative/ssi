@@ -71,7 +71,9 @@ pub enum EIP712Value {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Types {
     #[serde(rename = "EIP712Domain")]
-    pub eip712_domain: Option<StructType>,
+    // Note: implicit EIP712Domain is not standard EIP-712
+    #[serde(default)]
+    pub eip712_domain: StructType,
     #[serde(flatten)]
     pub types: HashMap<StructName, StructType>,
 }
@@ -128,8 +130,6 @@ pub enum TypedDataConstructionJSONError {
     ExpectedDocumentObject,
     #[error("Expected proof to be a JSON object")]
     ExpectedProofObject,
-    #[error("Expected eip712Domain in proof object")]
-    ExpectedEip712Domain,
     #[error("Expected types (messageSchema) in proof.eip712Domain")]
     ExpectedTypes,
     #[error("Unable to parse eip712Domain: {0}")]
@@ -138,6 +138,8 @@ pub enum TypedDataConstructionJSONError {
     ConvertMessage(TypedDataParseError),
     #[error("Unable to dereference EIP-712 types: {0}")]
     DereferenceTypes(DereferenceTypesError),
+    #[error("Unable to generate EIP-712 types and proof info: {0}")]
+    GenerateProofInfo(#[from] ProofGenerationError),
 }
 
 #[derive(Error, Debug)]
@@ -225,6 +227,13 @@ impl EIP712Value {
     }
 
     fn as_struct(&self) -> Option<&HashMap<StructName, EIP712Value>> {
+        match self {
+            EIP712Value::Struct(map) => Some(map),
+            _ => None,
+        }
+    }
+
+    fn as_struct_mut(&mut self) -> Option<&mut HashMap<StructName, EIP712Value>> {
         match self {
             EIP712Value::Struct(map) => Some(map),
             _ => None,
@@ -376,11 +385,68 @@ impl TryFrom<Value> for EIP712Value {
 impl Types {
     pub fn get(&self, struct_name: &str) -> Option<&StructType> {
         if struct_name == "EIP712Domain" {
-            self.eip712_domain.as_ref()
+            Some(&self.eip712_domain)
         } else {
             self.types.get(struct_name)
         }
     }
+}
+
+#[cfg(test)]
+lazy_static! {
+    // #example-10
+    static ref EXAMPLE_MESSAGE_SCHEMA: Value = {
+        serde_json::json!({
+          "Data": [
+            {
+              "name": "job",
+              "type": "Job"
+            },
+            {
+              "name": "name",
+              "type": "Name"
+            }
+          ],
+          "Document": [
+            {
+              "name": "@context",
+              "type": "string[]"
+            },
+            {
+              "name": "@type",
+              "type": "string"
+            },
+            {
+              "name": "data",
+              "type": "Data"
+            },
+            {
+              "name": "telephone",
+              "type": "string"
+            }
+          ],
+          "Job": [
+            {
+              "name": "employer",
+              "type": "string"
+            },
+            {
+              "name": "jobTitle",
+              "type": "string"
+            }
+          ],
+          "Name": [
+            {
+              "name": "firstName",
+              "type": "string"
+            },
+            {
+              "name": "lastName",
+              "type": "string"
+            }
+          ]
+        })
+    };
 }
 
 impl TypesOrURI {
@@ -390,6 +456,8 @@ impl TypesOrURI {
             Self::Object(types) => return Ok(types),
         };
         let value = match &uri[..] {
+            #[cfg(test)]
+            "https://example.com/messageSchema.json" => EXAMPLE_MESSAGE_SCHEMA.clone(),
             _ => Err(DereferenceTypesError::RemoteLoadingNotImplemented)?,
         };
         let types: Types =
@@ -734,10 +802,10 @@ impl TypedData {
         sigopts_statements_normalized.sort_by_cached_key(|statement| String::from(statement));
 
         let types = Types {
-            eip712_domain: Some(StructType(vec![MemberVariable {
+            eip712_domain: StructType(vec![MemberVariable {
                 name: "name".to_string(),
                 type_: EIP712Type::String,
-            }])),
+            }]),
             types: vec![(
                 "LDPSigningRequest".to_string(),
                 StructType(vec![
@@ -828,18 +896,34 @@ impl TypedData {
             .as_object_mut()
             .ok_or(TypedDataConstructionJSONError::ExpectedProofObject)?;
         proof_obj.remove("proofValue");
-        let info = proof_obj
-            .remove("eip712Domain")
-            .ok_or(TypedDataConstructionJSONError::ExpectedEip712Domain)?;
+        let info = proof_obj.remove("eip712Domain");
+        doc_obj.insert("proof".to_string(), proof_value);
+        let mut message = EIP712Value::try_from(doc_value)
+            .map_err(|e| TypedDataConstructionJSONError::ConvertMessage(e))?;
+        let proof_info: ProofInfo = match info {
+            Some(info) => serde_json::from_value(info)
+                .map_err(|e| TypedDataConstructionJSONError::ParseInfo(e))?,
+            None => {
+                // Workaround: remove proof object before generating types
+                let msg_struct = message
+                    .as_struct_mut()
+                    .ok_or(TypedDataConstructionJSONError::ExpectedDocumentObject)?;
+                let proof = msg_struct
+                    .remove("proof")
+                    .ok_or(TypedDataConstructionJSONError::ExpectedProofObject)?;
+                let info = generate_proof_info(&message)?;
+                let msg_struct = message
+                    .as_struct_mut()
+                    .ok_or(TypedDataConstructionJSONError::ExpectedDocumentObject)?;
+                msg_struct.insert("proof".to_string(), proof);
+                info
+            }
+        };
         let ProofInfo {
             types_or_uri,
             primary_type,
             domain,
-        } = serde_json::from_value(info)
-            .map_err(|e| TypedDataConstructionJSONError::ParseInfo(e))?;
-        doc_obj.insert("proof".to_string(), proof_value);
-        let message = EIP712Value::try_from(doc_value)
-            .map_err(|e| TypedDataConstructionJSONError::ConvertMessage(e))?;
+        } = proof_info;
         let types = types_or_uri
             .dereference()
             .await
@@ -899,7 +983,7 @@ pub enum TypesGenerationError {
 // Note: return type should be Types. Pending:
 // https://github.com/w3c-ccg/ethereum-eip712-signature-2021-spec/pull/26#discussion_r710066819
 pub fn generate_types(
-    doc: EIP712Value,
+    doc: &EIP712Value,
     primary_type: Option<StructName>,
 ) -> Result<HashMap<StructName, StructType>, TypesGenerationError> {
     // 1
@@ -910,7 +994,7 @@ pub fn generate_types(
     // 3
     // Using JCS here probably has no effect:
     // https://github.com/davidpdrsn/assert-json-diff
-    let doc_jcs = serde_jcs::to_string(&doc).map_err(|e| TypesGenerationError::JCS(e))?;
+    let doc_jcs = serde_jcs::to_string(doc).map_err(|e| TypesGenerationError::JCS(e))?;
     let doc: EIP712Value =
         serde_json::from_str(&doc_jcs).map_err(|e| TypesGenerationError::JCS(e))?;
     // 4
@@ -1010,7 +1094,7 @@ pub fn generate_types(
             EIP712Value::Struct(object) => {
                 // 8
                 let mut recursive_output = generate_types(
-                    EIP712Value::Struct(object.clone()),
+                    &EIP712Value::Struct(object.clone()),
                     Some(primary_type.clone()),
                 )?;
                 // 8.1
@@ -1040,20 +1124,39 @@ pub fn generate_types(
     Ok(output)
 }
 
+#[derive(Error, Debug)]
+pub enum ProofGenerationError {
+    #[error("Unable to generate types: {0}")]
+    TypesGeneration(#[from] TypesGenerationError),
+}
+
+// Generate eip712Domain proof property, using [generate_types].
+pub fn generate_proof_info(doc: &EIP712Value) -> Result<ProofInfo, ProofGenerationError> {
+    // Default primaryType to Document for consistency with generate_types.
+    let primary_type = StructName::from("Document");
+    let types = generate_types(doc, Some(primary_type.clone()))?;
+    let domain = EIP712Value::Struct(HashMap::default());
+    // Note: empty EIP712Domain is not valid EIP-712
+    let eip712_domain = StructType(vec![]);
+    Ok(ProofInfo {
+        types_or_uri: TypesOrURI::Object(Types {
+            eip712_domain,
+            types,
+        }),
+        primary_type,
+        domain,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
 
-    #[derive(Debug, Clone, Serialize, Deserialize)]
-    struct InputOptions {
-        date: Option<chrono::DateTime<chrono::Utc>>,
-    }
-
     #[test]
     fn test_encode_type() {
         let types = Types {
-            eip712_domain: Some(StructType(Vec::new())),
+            eip712_domain: StructType(Vec::new()),
             types: vec![
                 (
                     "Transaction".to_string(),
@@ -1377,7 +1480,7 @@ mod tests {
             ]
         }))
         .unwrap();
-        let types = generate_types(doc, None).unwrap();
+        let types = generate_types(&doc, None).unwrap();
         eprintln!("types: {}", serde_json::to_string_pretty(&types).unwrap());
         let types_value = serde_json::to_value(types).unwrap();
         let expected_types_value = serde_json::to_value(expected_types).unwrap();
@@ -1386,7 +1489,7 @@ mod tests {
         // https://github.com/w3c-ccg/ethereum-eip712-signature-2021-spec/pull/26
         let test_basic_document: EIP712Value =
             serde_json::from_value(TEST_BASIC_DOCUMENT.clone()).unwrap();
-        let types = generate_types(test_basic_document, None).unwrap();
+        let types = generate_types(&test_basic_document, None).unwrap();
         eprintln!("types: {}", serde_json::to_string_pretty(&types).unwrap());
         let types_value = serde_json::to_value(types).unwrap();
         let expected_types_value: Value = json!({
@@ -1732,7 +1835,7 @@ mod tests {
     /// <https://github.com/w3c-ccg/ethereum-eip712-signature-2021-spec/pull/26/>
     async fn verify_typed_data2() {
         use crate::ldp::resolve_vm;
-        use crate::vc::LinkedDataProofOptions;
+        use crate::vc::{LinkedDataProofOptions, ProofPurpose, URI};
 
         // Note: this is incorrect: VM id should have a fragment.
         let vm_id = "did:pkh:eth:0xAED7EA8035eEc47E657B34eF5D020c7005487443";
@@ -1750,13 +1853,109 @@ mod tests {
         let hash = crate::keccak_hash::hash_public_key(&jwk).unwrap();
         assert_eq!(hash, addr);
 
+        #[derive(Debug, Clone, Serialize, Deserialize)]
+        struct InputOptions {
+            #[serde(skip_serializing_if = "Option::is_none")]
+            types: Option<HashMap<StructName, StructType>>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            domain: Option<EIP712Value>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            date: Option<chrono::DateTime<chrono::Utc>>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            #[serde(rename = "embed")]
+            embed: Option<bool>,
+            #[serde(rename = "embedAsURI")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            embed_as_uri: Option<bool>,
+        }
+        impl From<InputOptions> for LinkedDataProofOptions {
+            fn from(input_options: InputOptions) -> LinkedDataProofOptions {
+                LinkedDataProofOptions {
+                    created: input_options.date,
+                    verification_method: Some(URI::String(
+                        "did:pkh:eth:0xAED7EA8035eEc47E657B34eF5D020c7005487443".to_string(),
+                    )),
+                    proof_purpose: Some(ProofPurpose::AssertionMethod),
+                    ..Default::default()
+                }
+            }
+        }
+
+        struct Example6Document {
+            doc: Value,
+        }
+        #[async_trait]
+        impl LinkedDataDocument for Example6Document {
+            fn get_contexts(&self) -> Result<Option<String>, crate::error::Error> {
+                Ok(None)
+            }
+            async fn to_dataset_for_signing(
+                &self,
+                _parent: Option<&(dyn LinkedDataDocument + Sync)>,
+            ) -> Result<crate::rdf::DataSet, crate::error::Error> {
+                todo!();
+            }
+
+            fn to_value(&self) -> Result<Value, crate::error::Error> {
+                Ok(self.doc.clone())
+            }
+        }
+
+        pub struct MockEthrDIDResolver {
+            doc: Document,
+        }
+        #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+        #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+        impl DIDResolver for MockEthrDIDResolver {
+            async fn resolve(
+                &self,
+                did: &str,
+                _input_metadata: &ResolutionInputMetadata,
+            ) -> (
+                ResolutionMetadata,
+                Option<Document>,
+                Option<DocumentMetadata>,
+            ) {
+                let doc: Document = match did {
+                    "did:pkh:eth:0xAED7EA8035eEc47E657B34eF5D020c7005487443" => self.doc.clone(),
+                    _ => return (ResolutionMetadata::from_error(ERROR_NOT_FOUND), None, None),
+                };
+                (
+                    ResolutionMetadata::default(),
+                    Some(doc),
+                    Some(DocumentMetadata::default()),
+                )
+            }
+        }
+
+        let basic_doc = Example6Document {
+            doc: TEST_BASIC_DOCUMENT.clone(),
+        };
+
+        let nested_doc = Example6Document {
+            doc: TEST_NESTED_DOCUMENT.clone(),
+        };
+
+        let resolver = MockEthrDIDResolver {
+            doc: serde_json::from_value(json!({
+              "@context": [
+                "https://www.w3.org/ns/did/v1"
+              ],
+              "id": "did:pkh:eth:0xAED7EA8035eEc47E657B34eF5D020c7005487443",
+              "type": "EcdsaSecp256k1RecoveryMethod2020",
+              "controller": "did:pkh:eth:0xAED7EA8035eEc47E657B34eF5D020c7005487443",
+              "blockchainAccountId": "eip155:1:0xaed7ea8035eec47e657b34ef5d020c7005487443"
+            }))
+            .unwrap(),
+        };
+
         // #basic-document-types-generation-embedded-types
-        let opts: LinkedDataProofOptions = serde_json::from_value(json!({
-            "created": "2021-08-30T13:28:02Z",
-            "verificationMethod": "did:pkh:eth:0xAED7EA8035eEc47E657B34eF5D020c7005487443",
-            "proofPurpose": "assertionMethod"
+        // #example-4
+        let input_options: InputOptions = serde_json::from_value(json!({
+            "date": "2021-08-30T13:28:02Z",
         }))
         .unwrap();
+        let ldp_options = LinkedDataProofOptions::from(input_options);
 
         // #example-5
         let proof_1: Proof = serde_json::from_value(json!({
@@ -1804,55 +2003,13 @@ mod tests {
         }))
         .unwrap();
 
-        struct Example6Document {
-            doc: Value,
-        }
-        #[async_trait]
-        impl LinkedDataDocument for Example6Document {
-            fn get_contexts(&self) -> Result<Option<String>, crate::error::Error> {
-                Ok(None)
-            }
-            async fn to_dataset_for_signing(
-                &self,
-                _parent: Option<&(dyn LinkedDataDocument + Sync)>,
-            ) -> Result<crate::rdf::DataSet, crate::error::Error> {
-                todo!();
-            }
+        let verification_result = proof_1.verify(&basic_doc, &resolver).await;
+        println!("{:#?}", verification_result);
+        assert!(verification_result.errors.is_empty());
 
-            fn to_value(&self) -> Result<Value, crate::error::Error> {
-                Ok(self.doc.clone())
-            }
-        }
-
-        pub struct MockEthrDIDResolver {
-            doc: Document,
-        };
-        #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-        #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
-        impl DIDResolver for MockEthrDIDResolver {
-            async fn resolve(
-                &self,
-                did: &str,
-                _input_metadata: &ResolutionInputMetadata,
-            ) -> (
-                ResolutionMetadata,
-                Option<Document>,
-                Option<DocumentMetadata>,
-            ) {
-                let doc: Document = match did {
-                    "did:pkh:eth:0xAED7EA8035eEc47E657B34eF5D020c7005487443" => self.doc.clone(),
-                    _ => return (ResolutionMetadata::from_error(ERROR_NOT_FOUND), None, None),
-                };
-                (
-                    ResolutionMetadata::default(),
-                    Some(doc),
-                    Some(DocumentMetadata::default()),
-                )
-            }
-        }
-
+        // #nested-document-typeddata-provided-embedded-types
         // #example-6
-        let input_options = json!({
+        let input_options: InputOptions = serde_json::from_value(json!({
           "types": {
             "Data": [
               {
@@ -1905,7 +2062,9 @@ mod tests {
           },
           "domain": {},
           "date": "2021-08-30T13:28:02Z"
-        });
+        }))
+        .unwrap();
+        let ldp_options = LinkedDataProofOptions::from(input_options);
 
         // #example-7
         let proof_2: Proof = serde_json::from_value(json!({
@@ -1926,8 +2085,6 @@ mod tests {
                   "name": "name",
                   "type": "Name"
                 }
-              ],
-              "EIP712Domain": [
               ],
               "Document": [
                 {
@@ -1972,23 +2129,56 @@ mod tests {
           }
         })).unwrap();
 
-        let nested_doc = Example6Document {
-            doc: TEST_NESTED_DOCUMENT.clone(),
-        };
-
-        let resolver = MockEthrDIDResolver {
-            doc: serde_json::from_value(json!({
-              "@context": [
-                "https://www.w3.org/ns/did/v1"
-              ],
-              "id": "did:pkh:eth:0xAED7EA8035eEc47E657B34eF5D020c7005487443",
-              "type": "EcdsaSecp256k1RecoveryMethod2020",
-              "controller": "did:pkh:eth:0xAED7EA8035eEc47E657B34eF5D020c7005487443",
-              "blockchainAccountId": "eip155:1:0xaed7ea8035eec47e657b34ef5d020c7005487443"
-            }))
-            .unwrap(),
-        };
         let verification_result = proof_2.verify(&nested_doc, &resolver).await;
+        println!("{:#?}", verification_result);
+        assert!(verification_result.errors.is_empty());
+
+        // #nested-document-types-generation-typeddata-schema-as-uri
+        // #example-8
+        let input_options: InputOptions = serde_json::from_value(json!({
+          "embedAsURI": true,
+          "date": "2021-08-30T13:28:02Z"
+        }))
+        .unwrap();
+        let ldp_options = LinkedDataProofOptions::from(input_options);
+
+        // #example-9
+        let proof_3: Proof = serde_json::from_value(json!({
+          "created": "2021-08-30T13:28:02Z",
+          "proofPurpose": "assertionMethod",
+          "type": "EthereumEip712Signature2021",
+          "verificationMethod": "did:pkh:eth:0xAED7EA8035eEc47E657B34eF5D020c7005487443",
+          "proofValue": "0xc932c9f35b465f3f4f208ce7aa3335541ddb1e3d970ed36b9db29c13deadb54d53b5d87eafce0f9df6deb42e9522c079a995166d5c4f711d9ce9b6bde0747a461c",
+          "eip712Domain": {
+            "domain": {},
+            "messageSchema": "https://example.com/messageSchema.json",
+            "primaryType": "Document"
+          }
+        })).unwrap();
+
+        let verification_result = proof_3.verify(&nested_doc, &resolver).await;
+        println!("{:#?}", verification_result);
+        assert!(verification_result.errors.is_empty());
+
+        // #nested-document-types-generation-typeddata-not-embedded
+        // #example-11
+        let input_options: InputOptions = serde_json::from_value(json!({
+          "embed": false,
+          "date": "2021-08-30T13:28:02Z"
+        }))
+        .unwrap();
+        let ldp_options = LinkedDataProofOptions::from(input_options);
+
+        // #example-12
+        let proof_4: Proof = serde_json::from_value(json!({
+          "created": "2021-08-30T13:28:02Z",
+          "proofPurpose": "assertionMethod",
+          "type": "EthereumEip712Signature2021",
+          "verificationMethod": "did:pkh:eth:0xAED7EA8035eEc47E657B34eF5D020c7005487443",
+          "proofValue": "0xc932c9f35b465f3f4f208ce7aa3335541ddb1e3d970ed36b9db29c13deadb54d53b5d87eafce0f9df6deb42e9522c079a995166d5c4f711d9ce9b6bde0747a461c"
+        })).unwrap();
+
+        let verification_result = proof_4.verify(&nested_doc, &resolver).await;
         println!("{:#?}", verification_result);
         assert!(verification_result.errors.is_empty());
     }

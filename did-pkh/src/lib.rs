@@ -1265,6 +1265,7 @@ mod tests {
         let mut map = std::collections::HashMap::new();
         map.insert("foo".to_string(), serde_json::json!("bar"));
         vc.property_set = Some(map);
+        println!("{}", serde_json::to_string_pretty(&vc).unwrap());
         let verification_result = vc.verify(None, &DIDPKH).await;
         println!("{:#?}", verification_result);
         assert!(verification_result.errors.len() > 0);

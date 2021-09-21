@@ -770,8 +770,7 @@ pub fn encode_data(
             if !keys.is_empty() {
                 // A key was remaining in the data that does not have a type in the struct.
                 let names: Vec<String> = keys.into_iter().collect();
-                // return Err(TypedDataHashError::UntypedProperties(names));
-                dbg!(names);
+                return Err(TypedDataHashError::UntypedProperties(names));
             }
             enc
         }

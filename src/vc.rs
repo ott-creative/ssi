@@ -761,7 +761,7 @@ impl Credential {
         }
         if let Some(sub) = claims.subject {
             if let StringOrURI::URI(sub_uri) = sub {
-                if let OneOrMany::One(ref mut subject) = vc.credential_subject {
+                if let Some(ref mut subject) = vc.credential_subject.to_single_mut() {
                     subject.id = Some(sub_uri);
                 } else {
                     return Err(Error::InvalidSubject);

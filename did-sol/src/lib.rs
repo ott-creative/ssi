@@ -4,6 +4,7 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 
 use ssi::caip10::BlockchainAccountId;
+use ssi::caip2::ChainId;
 use ssi::did::{
     Context, Contexts, DIDMethod, Document, Source, VerificationMethod, VerificationMethodMap,
     DEFAULT_CONTEXT, DIDURL,
@@ -13,6 +14,9 @@ use ssi::did_resolve::{
     TYPE_DID_LD_JSON,
 };
 use ssi::jwk::{Base64urlUInt, OctetParams, Params, JWK};
+
+// https://github.com/ChainAgnostic/CAIPs/blob/master/CAIPs/caip-30.md
+const REFERENCE_SOLANA_MAINNET: &str = "4sGjMW1sUnHzSxGspuhpqLDx6wiyjNtZ";
 
 /// did:sol DID Method
 pub struct DIDSol;
@@ -76,7 +80,10 @@ impl DIDResolver for DIDSol {
         );
         let blockchain_account_id = BlockchainAccountId {
             account_address: address,
-            chain_id: "solana".to_string(), // TODO: standardize
+            chain_id: ChainId {
+                namespace: "solana".to_string(),
+                reference: REFERENCE_SOLANA_MAINNET.to_string(),
+            },
         };
         let vm_didurl = DIDURL {
             did: did.to_string(),

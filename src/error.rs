@@ -6,7 +6,6 @@ use crate::eip712::TypedDataConstructionError;
 use crate::eip712::TypedDataConstructionJSONError;
 #[cfg(feature = "keccak-hash")]
 use crate::eip712::TypedDataHashError;
-use crate::json_ld;
 use crate::tzkey::{DecodeTezosSignatureError, EncodeTezosSignedMessageError};
 use base64::DecodeError as Base64Error;
 #[cfg(feature = "ed25519-dalek")]
@@ -77,6 +76,7 @@ pub enum Error {
     UnsupportedCurve,
     UnsupportedMultipleVMs,
     KeyTypeNotImplemented,
+    UnsupportedNonDIDIssuer(String),
     CurveNotImplemented(String),
     MissingKey,
     MissingPrivateKey,
@@ -93,6 +93,7 @@ pub enum Error {
     MissingIssuer,
     MissingAccountId,
     MissingVerificationMethod,
+    MissingVerificationRelationship(String, crate::vc::ProofPurpose, String),
     Key,
     Secp256k1Parse(String),
     Secp256r1Parse(String),
@@ -103,12 +104,14 @@ pub enum Error {
     DIDURLDereference(String),
     UnexpectedDIDFragment,
     InvalidContext,
+    ControllerLimit,
     MissingContext,
     MissingDocumentId,
     MissingProofSignature,
     ExpiredProof,
     FutureProof,
     InvalidProofPurpose,
+    MissingProofPurpose,
     InvalidProofDomain,
     InvalidSignature,
     UnexpectedSignatureLength(usize, usize),
@@ -197,6 +200,7 @@ pub enum Error {
     HexString,
     SignaturePrefix,
     KeyPrefix,
+    UnableToResolve(String),
     P256KeyLength(usize),
     ECEncodingError,
     ECDecompress,
@@ -231,6 +235,7 @@ impl fmt::Display for Error {
             Error::MissingIssuer => write!(f, "Missing issuer property"),
             Error::MissingAccountId => write!(f, "Missing account id"),
             Error::MissingVerificationMethod => write!(f, "Missing verificationMethod"),
+            Error::MissingVerificationRelationship(issuer, proof_purpose, vm) => write!(f, "Missing verification relationship. Issuer: {}. Proof purpose: {:?}. Verification method id: {}", issuer, proof_purpose, vm),
             Error::MissingCredential => write!(f, "Verifiable credential not found in JWT"),
             Error::MissingPresentation => write!(f, "Verifiable presentation not found in JWT"),
             Error::Key => write!(f, "problem with JWT key"),
@@ -270,10 +275,12 @@ impl fmt::Display for Error {
             Error::UnsupportedAlgorithm => write!(f, "Unsupported algorithm"),
             Error::UnsupportedCurve => write!(f, "Unsupported curve"),
             Error::UnsupportedMultipleVMs => write!(f, "Unsupported multiple verification methods"),
+            Error::UnsupportedNonDIDIssuer(issuer) => write!(f, "Unsupported non-DID issuer: {}", issuer),
             Error::KeyTypeNotImplemented => write!(f, "Key type not implemented"),
             Error::CurveNotImplemented(curve) => write!(f, "Curve not implemented: '{:?}'", curve),
             Error::TimeError => write!(f, "Unable to convert date/time"),
             Error::InvalidContext => write!(f, "Invalid context"),
+            Error::ControllerLimit => write!(f, "DID controller limit exceeded"),
             Error::MissingContext => write!(f, "Missing context"),
             Error::MissingDocumentId => write!(f, "Missing document ID"),
             Error::MissingProofSignature => write!(f, "Missing JWS in proof"),
@@ -284,6 +291,7 @@ impl fmt::Display for Error {
             Error::InvalidJWS => write!(f, "Invalid JWS"),
             Error::MissingJWSHeader => write!(f, "Missing JWS Header"),
             Error::InvalidProofPurpose => write!(f, "Invalid proof purpose"),
+            Error::MissingProofPurpose => write!(f, "Missing proof purpose"),
             Error::InvalidProofDomain => write!(f, "Invalid proof domain"),
             Error::MissingCredentialSchema => write!(f, "Missing credential schema for ZKP"),
             Error::UnsupportedProperty => write!(f, "Unsupported property for LDP"),
@@ -339,6 +347,7 @@ impl fmt::Display for Error {
             Error::HexString => write!(f, "Expected string beginning with '0x'"),
             Error::SignaturePrefix => write!(f, "Unknown signature prefix"),
             Error::KeyPrefix => write!(f, "Unknown key prefix"),
+            Error::UnableToResolve(error) => write!(f, "Unable to resolve: {}", error),
             Error::FromUtf8(e) => e.fmt(f),
             Error::TryFromSlice(e) => e.fmt(f),
             #[cfg(feature = "ring")]

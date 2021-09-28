@@ -5,6 +5,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+## [0.3.0]
 ### Added
 - Add `PrimaryDIDURL` type.
 - Add `EthereumEip712Signature2021` v1 context.
@@ -12,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Implement converting JWK to Tezos format.
 - Add `did:pkh:poly:`.
 - Use `vc-test-suite` example keys and DIDs.
-- Add Revocation List 2020 JSON-LD context file.
+- Implement Revocation List 2020 credential status checking.
 - Implement `PS256` JWS algorithm.
 - Work-in-progress ZCap invocation methods
 - Implement `FromStr` for `URI`.
@@ -32,6 +34,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Allow returning warnings from proof verification.
 - Use `MissingFeatures` error in proof type selection.
 - Add `Proof::with_options` for proof params.
+- Support `publicKeyHex` for `EcdsaSecp256k1VerificationKey2019`.
+- Resolve `did:key:zUC7` DIDs (`Bls12381G2`)
+- Add BBS+ types and functions.
+- Add `did_resolve::get_verification_methods` function
+- Ensure or pick default verification method during VC/VP creation.
 
 ### Changed
 - Use PrimaryDIDURL in dereference trait method.
@@ -49,11 +56,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 - Remove timestamp from generative DID methods.
+- Removed bundled `json-ld` crate.
 
 ### Fixed
 - Catch double fragment in service endpoint URL.
 - Improve JWK/VM comparison.
-- Fix Tezos CAIP-2 chain IDs.
+- Use CAIP-26 for Tezos chain IDs.
+- Use CAIP-30 for Solana chain ids.
 - Fix converting RSA JWK to public.
 - Fix `did:example:foo` and `did:example:bar`.
 - Update W3C Software and Document Short Notice.
@@ -67,11 +76,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fix WASM async trait compilation.
 - Improve JWT support.
 - Canonicalize negative zero.
+- Support public key values in `did:ethr`.
+- Use updated `json-ld` crate, enabling better conformance with RDF deserialization tests.
 
 ### Security
 - Validate linked data proof object RDF consistency.
 - Check key size for RSA JWS
 - Validate key and algorithm for `JsonWebSignature2020`.
+- Verification method and proof purpose are now checked during verifiable credential issuance and verifiable presentation generation.
 
 ## [0.2.2] - 2021-05-26
 ### Added
@@ -234,7 +246,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [vc-test-suite]: https://github.com/w3c/vc-test-suite
 [verification relationship]: https://www.w3.org/TR/did-core/#dfn-verification-relationship
 
-[Unreleased]: https://github.com/spruceid/ssi/compare/v0.2.2...HEAD
+[Unreleased]: https://github.com/spruceid/ssi/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/spruceid/ssi/releases/tag/v0.3.0
 [0.2.2]: https://github.com/spruceid/ssi/releases/tag/v0.2.2
 [0.2.1]: https://github.com/spruceid/ssi/releases/tag/v0.2.1
 [0.2.0]: https://github.com/spruceid/ssi/releases/tag/v0.2.0

@@ -398,6 +398,8 @@ impl Types {
 #[cfg(test)]
 lazy_static! {
     // #example-10
+    // https://github.com/w3c-ccg/ethereum-eip712-signature-2021-spec/blob/4f1a089c109c32e29725254accfc375588736c39/index.html#L759-L808
+    // https://github.com/w3c-ccg/ethereum-eip712-signature-2021-spec/pull/26/files#diff-0eb547304658805aad788d320f10bf1f292797b5e6d745a3bf617584da017051R759-R808
     static ref EXAMPLE_MESSAGE_SCHEMA: Value = {
         serde_json::json!({
           "Data": [
@@ -445,6 +447,13 @@ lazy_static! {
             },
             {
               "name": "lastName",
+              "type": "string"
+            }
+          ],
+          // Added
+          "EIP712Domain": [
+            {
+              "name": "name",
               "type": "string"
             }
           ]
@@ -773,7 +782,8 @@ pub fn encode_data(
             if !keys.is_empty() {
                 // A key was remaining in the data that does not have a type in the struct.
                 let names: Vec<String> = keys.into_iter().collect();
-                return Err(TypedDataHashError::UntypedProperties(names));
+                eprintln!("untyped properties: {:?}", names);
+                // return Err(TypedDataHashError::UntypedProperties(names));
             }
             enc
         }
@@ -1852,7 +1862,7 @@ mod tests {
         use crate::vc::{LinkedDataProofOptions, ProofPurpose, URI};
 
         // Note: this is incorrect: VM id should have a fragment.
-        let vm_id = "did:pkh:eth:0xAED7EA8035eEc47E657B34eF5D020c7005487443";
+        let vm_id = "did:pkh:eip155:1:0xAED7EA8035eEc47E657B34eF5D020c7005487443";
         let addr = "0xaed7ea8035eec47e657b34ef5d020c7005487443";
         let sk_hex = "0x149195a4059ac8cafe2d56fc612f613b6b18b9265a73143c9f6d7cfbbed76b7e";
         let sk_bytes = bytes_from_hex(sk_hex).unwrap();
@@ -1887,7 +1897,7 @@ mod tests {
                 LinkedDataProofOptions {
                     created: input_options.date,
                     verification_method: Some(URI::String(
-                        "did:pkh:eth:0xAED7EA8035eEc47E657B34eF5D020c7005487443".to_string(),
+                        "did:pkh:eip155:1:0xAED7EA8035eEc47E657B34eF5D020c7005487443".to_string(),
                     )),
                     proof_purpose: Some(ProofPurpose::AssertionMethod),
                     ..Default::default()
@@ -1931,7 +1941,9 @@ mod tests {
                 Option<DocumentMetadata>,
             ) {
                 let doc: Document = match did {
-                    "did:pkh:eth:0xAED7EA8035eEc47E657B34eF5D020c7005487443" => self.doc.clone(),
+                    "did:pkh:eip155:1:0xAED7EA8035eEc47E657B34eF5D020c7005487443" => {
+                        self.doc.clone()
+                    }
                     _ => return (ResolutionMetadata::from_error(ERROR_NOT_FOUND), None, None),
                 };
                 (
@@ -1955,9 +1967,9 @@ mod tests {
               "@context": [
                 "https://www.w3.org/ns/did/v1"
               ],
-              "id": "did:pkh:eth:0xAED7EA8035eEc47E657B34eF5D020c7005487443",
+              "id": "did:pkh:eip155:1:0xAED7EA8035eEc47E657B34eF5D020c7005487443",
               "type": "EcdsaSecp256k1RecoveryMethod2020",
-              "controller": "did:pkh:eth:0xAED7EA8035eEc47E657B34eF5D020c7005487443",
+              "controller": "did:pkh:eip155:1:0xAED7EA8035eEc47E657B34eF5D020c7005487443",
               "blockchainAccountId": "eip155:1:0xaed7ea8035eec47e657b34ef5d020c7005487443"
             }))
             .unwrap(),
@@ -1965,15 +1977,20 @@ mod tests {
 
         // #basic-document-types-generation-embedded-types
         // #example-4
+        // https://github.com/w3c-ccg/ethereum-eip712-signature-2021-spec/blob/4f1a089c109c32e29725254accfc375588736c39/index.html#L524-L530
         let input_options: InputOptions = serde_json::from_value(json!({
-            "date": "2021-08-30T13:28:02Z",
+          "date": "2021-08-30T13:28:02Z",
+          "verificationMethod": "did:pkh:eip155:1:0xAED7EA8035eEc47E657B34eF5D020c7005487443",
+          "domain": {
+            "name": "Test"
+          }
         }))
         .unwrap();
         let ldp_options = LinkedDataProofOptions::from(input_options);
+        // TODO: compare with the following proof object
 
         // #example-5
-        // from ethereum-eip712-signature-2021-spec
-        // @4f1a089c109c32e29725254accfc375588736c39
+        // https://github.com/w3c-ccg/ethereum-eip712-signature-2021-spec/blob/4f1a089c109c32e29725254accfc375588736c39/index.html#L536-L580
         // https://github.com/w3c-ccg/ethereum-eip712-signature-2021-spec/pull/26
         let proof_1: Proof = serde_json::from_value(json!({
             "created": "2021-08-30T13:28:02Z",
@@ -2015,6 +2032,13 @@ mod tests {
                     "name": "telephone",
                     "type": "string"
                   }
+                ],
+                // Added
+                "EIP712Domain": [
+                  {
+                    "name": "name",
+                    "type": "string"
+                  }
                 ]
               },
               "primaryType": "Document"
@@ -2028,7 +2052,10 @@ mod tests {
 
         // #nested-document-typeddata-provided-embedded-types
         // #example-6
+        // https://github.com/w3c-ccg/ethereum-eip712-signature-2021-spec/blob/4f1a089c109c32e29725254accfc375588736c39/index.html#L591-L647
+        // https://github.com/w3c-ccg/ethereum-eip712-signature-2021-spec/pull/26/files#diff-0eb547304658805aad788d320f10bf1f292797b5e6d745a3bf617584da017051R591-R647
         let input_options: InputOptions = serde_json::from_value(json!({
+          "verificationMethod": "did:pkh:eip155:1:0xAED7EA8035eEc47E657B34eF5D020c7005487443",
           "types": {
             "Data": [
               {
@@ -2079,21 +2106,28 @@ mod tests {
               }
             ]
           },
-          "domain": {},
+          "domain": {
+            "name": "Test"
+          },
           "date": "2021-08-30T13:28:02Z"
         }))
         .unwrap();
         let ldp_options = LinkedDataProofOptions::from(input_options);
+        // TODO: compare with the following proof object
 
         // #example-7
+        // https://github.com/w3c-ccg/ethereum-eip712-signature-2021-spec/blob/4f1a089c109c32e29725254accfc375588736c39/index.html#L653-L715
+        // https://github.com/w3c-ccg/ethereum-eip712-signature-2021-spec/pull/26/files#diff-0eb547304658805aad788d320f10bf1f292797b5e6d745a3bf617584da017051R653-R715
         let proof_2: Proof = serde_json::from_value(json!({
           "created": "2021-08-30T13:28:02Z",
           "proofPurpose": "assertionMethod",
           "type": "EthereumEip712Signature2021",
-          "verificationMethod": "did:pkh:eth:0xAED7EA8035eEc47E657B34eF5D020c7005487443",
-          "proofValue": "0xc932c9f35b465f3f4f208ce7aa3335541ddb1e3d970ed36b9db29c13deadb54d53b5d87eafce0f9df6deb42e9522c079a995166d5c4f711d9ce9b6bde0747a461c",
+          "verificationMethod": "did:pkh:eip155:1:0xAED7EA8035eEc47E657B34eF5D020c7005487443",
+          "proofValue": "0x00ee58c6a5a719a346df6194305bafc94d913a140f9d1a3e429c0a525df1eb8e24366e65ddcfe22e43d00cc6bae33fdf3361b3d6502beeebfe73cd762165236c1c",
           "eip712Domain": {
-            "domain": {},
+            "domain": {
+              "name": "Test"
+            },
             "messageSchema": {
               "Data": [
                 {
@@ -2142,6 +2176,13 @@ mod tests {
                   "name": "lastName",
                   "type": "string"
                 }
+              ],
+              // Added
+              "EIP712Domain": [
+                {
+                  "name": "name",
+                  "type": "string"
+                }
               ]
             },
             "primaryType": "Document"
@@ -2154,22 +2195,33 @@ mod tests {
 
         // #nested-document-types-generation-typeddata-schema-as-uri
         // #example-8
+        // https://github.com/w3c-ccg/ethereum-eip712-signature-2021-spec/blob/4f1a089c109c32e29725254accfc375588736c39/index.html#L727-L734
+        // https://github.com/w3c-ccg/ethereum-eip712-signature-2021-spec/pull/26/files#diff-0eb547304658805aad788d320f10bf1f292797b5e6d745a3bf617584da017051R727-R734
         let input_options: InputOptions = serde_json::from_value(json!({
           "embedAsURI": true,
-          "date": "2021-08-30T13:28:02Z"
+          "date": "2021-08-30T13:28:02Z",
+          "verificationMethod": "did:pkh:eip155:1:0xAED7EA8035eEc47E657B34eF5D020c7005487443",
+          "domain": {
+            "name": "Test"
+          }
         }))
         .unwrap();
         let ldp_options = LinkedDataProofOptions::from(input_options);
+        // TODO: compare with the following proof object
 
         // #example-9
+        // https://github.com/w3c-ccg/ethereum-eip712-signature-2021-spec/blob/4f1a089c109c32e29725254accfc375588736c39/index.html#L740-L753
+        // https://github.com/w3c-ccg/ethereum-eip712-signature-2021-spec/pull/26/files#diff-0eb547304658805aad788d320f10bf1f292797b5e6d745a3bf617584da017051R740-R753
         let proof_3: Proof = serde_json::from_value(json!({
           "created": "2021-08-30T13:28:02Z",
           "proofPurpose": "assertionMethod",
           "type": "EthereumEip712Signature2021",
-          "verificationMethod": "did:pkh:eth:0xAED7EA8035eEc47E657B34eF5D020c7005487443",
-          "proofValue": "0xc932c9f35b465f3f4f208ce7aa3335541ddb1e3d970ed36b9db29c13deadb54d53b5d87eafce0f9df6deb42e9522c079a995166d5c4f711d9ce9b6bde0747a461c",
+          "verificationMethod": "did:pkh:eip155:1:0xAED7EA8035eEc47E657B34eF5D020c7005487443",
+          "proofValue": "0x00ee58c6a5a719a346df6194305bafc94d913a140f9d1a3e429c0a525df1eb8e24366e65ddcfe22e43d00cc6bae33fdf3361b3d6502beeebfe73cd762165236c1c",
           "eip712Domain": {
-            "domain": {},
+            "domain": {
+              "name": "Test"
+            },
             "messageSchema": "https://example.com/messageSchema.json",
             "primaryType": "Document"
           }
@@ -2179,21 +2231,32 @@ mod tests {
         println!("{:#?}", verification_result);
         assert!(verification_result.errors.is_empty());
 
+        // #example-10 is EXAMPLE_MESSAGE_SCHEMA
+
         // #nested-document-types-generation-typeddata-not-embedded
         // #example-11
+        // https://github.com/w3c-ccg/ethereum-eip712-signature-2021-spec/blob/4f1a089c109c32e29725254accfc375588736c39/index.html#L824-L831
+        // https://github.com/w3c-ccg/ethereum-eip712-signature-2021-spec/pull/26/files#diff-0eb547304658805aad788d320f10bf1f292797b5e6d745a3bf617584da017051R824-R831
         let input_options: InputOptions = serde_json::from_value(json!({
-          "embed": false,
-          "date": "2021-08-30T13:28:02Z"
+          "date": "2021-08-30T13:28:02Z",
+          "verificationMethod": "did:pkh:eip155:1:0xAED7EA8035eEc47E657B34eF5D020c7005487443",
+          "domain": {
+            "name": "Test"
+          },
+          "embed": false
         }))
         .unwrap();
         let ldp_options = LinkedDataProofOptions::from(input_options);
+        // TODO: compare with the following proof object
 
         // #example-12
+        // https://github.com/w3c-ccg/ethereum-eip712-signature-2021-spec/blob/4f1a089c109c32e29725254accfc375588736c39/index.html#L837-L843
+        // https://github.com/w3c-ccg/ethereum-eip712-signature-2021-spec/pull/26/files#diff-0eb547304658805aad788d320f10bf1f292797b5e6d745a3bf617584da017051R837-R843
         let proof_4: Proof = serde_json::from_value(json!({
           "created": "2021-08-30T13:28:02Z",
           "proofPurpose": "assertionMethod",
           "type": "EthereumEip712Signature2021",
-          "verificationMethod": "did:pkh:eth:0xAED7EA8035eEc47E657B34eF5D020c7005487443",
+          "verificationMethod": "did:pkh:eip155:1:0xAED7EA8035eEc47E657B34eF5D020c7005487443",
           "proofValue": "0xc932c9f35b465f3f4f208ce7aa3335541ddb1e3d970ed36b9db29c13deadb54d53b5d87eafce0f9df6deb42e9522c079a995166d5c4f711d9ce9b6bde0747a461c"
         })).unwrap();
 

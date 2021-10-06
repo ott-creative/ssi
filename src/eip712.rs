@@ -1957,48 +1957,53 @@ mod tests {
         let ldp_options = LinkedDataProofOptions::from(input_options);
 
         // #example-5
+        // from ethereum-eip712-signature-2021-spec
+        // @4f1a089c109c32e29725254accfc375588736c39
+        // https://github.com/w3c-ccg/ethereum-eip712-signature-2021-spec/pull/26
         let proof_1: Proof = serde_json::from_value(json!({
-          "created": "2021-08-30T13:28:02Z",
-          "proofPurpose": "assertionMethod",
-          "type": "EthereumEip712Signature2021",
-          "verificationMethod": "did:pkh:eth:0xAED7EA8035eEc47E657B34eF5D020c7005487443",
-          "proofValue": "0xd8ced27b921866a9cb6fb859503714ad4be03ae70706237d05c9f113da7f4a1d7f74f9f9df4301571f5c4f253c09e1b5119a85f00760f33924d72a07d31881ec1b",
-          "eip712Domain": {
-            "domain": {},
-            "messageSchema": {
-              "Document": [
-                {
-                  "name": "@context",
-                  "type": "string[]"
-                },
-                {
-                  "name": "@type",
-                  "type": "string"
-                },
-                {
-                  "name": "email",
-                  "type": "string"
-                },
-                {
-                  "name": "firstName",
-                  "type": "string"
-                },
-                {
-                  "name": "jobTitle",
-                  "type": "string"
-                },
-                {
-                  "name": "lastName",
-                  "type": "string"
-                },
-                {
-                  "name": "telephone",
-                  "type": "string"
-                }
-              ]
-            },
-            "primaryType": "Document"
-          }
+            "created": "2021-08-30T13:28:02Z",
+            "proofPurpose": "assertionMethod",
+            "type": "EthereumEip712Signature2021",
+            "verificationMethod": "did:pkh:eip155:1:0xAED7EA8035eEc47E657B34eF5D020c7005487443",
+            "proofValue": "0x3d4518532cb589760742045bce8deb57dab474a3db500a7162b53ed43b034ef332e7e7f0c361140c366505e820ee4146f4fdd918e3dd27286f70df6435ab0b821c",
+            "eip712Domain": {
+              "domain": {
+                "name": "Test"
+              },
+              "messageSchema": {
+                "Document": [
+                  {
+                    "name": "@context",
+                    "type": "string[]"
+                  },
+                  {
+                    "name": "@type",
+                    "type": "string"
+                  },
+                  {
+                    "name": "email",
+                    "type": "string"
+                  },
+                  {
+                    "name": "firstName",
+                    "type": "string"
+                  },
+                  {
+                    "name": "jobTitle",
+                    "type": "string"
+                  },
+                  {
+                    "name": "lastName",
+                    "type": "string"
+                  },
+                  {
+                    "name": "telephone",
+                    "type": "string"
+                  }
+                ]
+              },
+              "primaryType": "Document"
+            }
         }))
         .unwrap();
 

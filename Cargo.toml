@@ -1,6 +1,6 @@
 [package]
 name = "ssi"
-version = "0.2.2"
+version = "0.3.0"
 authors = ["Spruce Systems, Inc."]
 edition = "2018"
 license = "Apache-2.0"
@@ -101,6 +101,7 @@ members = [
 ]
 
 [dev-dependencies]
+blake2 = "0.8" # for bbs doctest
 uuid = { version = "0.8", features = ["v4", "serde"] }
 difference = "2.0"
 did-method-key = { path = "./did-key" }

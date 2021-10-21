@@ -1,3 +1,11 @@
+//! DER (Distinguished Encoding Rules) and ASN.1
+//!
+//! This module provides various cryptographic data structures and their [ASN.1] (de)serialization
+//! using [simple_asn1].
+//!
+//! [ASN.1]: https://www.iso.org/standard/81420.html "ISO/IEC 8825-1:2021"
+//! [simple_asn1]: https://crates.io/crates/simple_asn1
+//!
 // http://luca.ntop.org/Teaching/Appunti/asn1.html
 // https://tls.mbed.org/kb/cryptography/asn1-key-structures-in-der-and-pem
 // https://en.wikipedia.org/wiki/Distinguished_Encoding_Rules#BER_encoding
@@ -11,6 +19,9 @@ use simple_asn1::{der_encode, ASN1Block, ASN1Class, ToASN1};
 
 use crate::error::Error;
 
+/// RSA private key for ASN.1 encoding, as specified in [RFC 8017].
+///
+/// [RFC 8017]: https://datatracker.ietf.org/doc/html/rfc8017#appendix-A.1.2 "RFC 8017 PKCS #1 v2.2 - A.1.2. RSA Private Key Syntax"
 #[derive(Debug, Clone)]
 pub struct RSAPrivateKey {
     pub modulus: Integer,
@@ -24,26 +35,41 @@ pub struct RSAPrivateKey {
     pub other_prime_infos: Option<OtherPrimeInfos>,
 }
 
+/// RSA public key for ASN.1 encoding, as specified in [RFC 8017].
+///
+/// [RFC 8017]: https://datatracker.ietf.org/doc/html/rfc8017#appendix-A.1.1 "RFC 8017 PKCS #1 v2.2 - A.1.1. RSA Public Key Syntax"
 #[derive(Debug, Clone)]
 pub struct RSAPublicKey {
     pub modulus: Integer,
     pub public_exponent: Integer,
 }
 
+/// Ed25519 public key for ASN.1 encoding, as specified in [RFC 8410].
+///
+/// [RFC 8410]: https://datatracker.ietf.org/doc/html/rfc8410#section-10.1 "RFC 8410 Safe Curves for X.509 - 10.1. Example Ed25519 Public Key"
 #[derive(Debug, Clone)]
 pub struct Ed25519PublicKey {
     pub public_key: BitString,
 }
 
+/// Ed25519 private key for ASN.1 encoding, as specified in [RFC 8410].
+///
+/// [RFC 8410]: https://datatracker.ietf.org/doc/html/rfc8410#section-10.3 "RFC 8410 Safe Curves for X.509 - 10.3. Examples of Ed25519 Private Key"
 #[derive(Debug, Clone)]
 pub struct Ed25519PrivateKey {
     pub public_key: BitString,
     pub private_key: OctetString,
 }
 
+/// Additional primes in a [RSA private key][RSAPrivateKey], as specified in [RFC 8017].
+///
+/// [RFC 8017]: https://datatracker.ietf.org/doc/html/rfc8017#page-56 "RFC 8017 PKCS #1 v2.2 - Page 56"
 #[derive(Debug, Clone)]
 pub struct OtherPrimeInfos(pub Vec<OtherPrimeInfo>);
 
+/// Additional prime in a [RSA private key][RSAPrivateKey], as specified in [RFC 8017].
+///
+/// [RFC 8017]: https://datatracker.ietf.org/doc/html/rfc8017#page-56 "RFC 8017 PKCS #1 v2.2 - Page 56"
 #[derive(Debug, Clone)]
 pub struct OtherPrimeInfo {
     pub prime: Integer,
@@ -52,13 +78,24 @@ pub struct OtherPrimeInfo {
 }
 
 #[derive(Debug, Clone)]
+/// An integer value, for encoding in [ASN.1][ITU X.690]
+///
+/// [ITU X.690]: https://www.itu.int/rec/T-REC-X.690-202102-I/en
 pub struct Integer(pub BigInt);
 
 #[derive(Debug, Clone)]
+/// An octetstring from [ASN.1][ITU X.690]
+///
+/// [ITU X.690]: https://www.itu.int/rec/T-REC-X.690-202102-I/en
 pub struct OctetString(pub Vec<u8>);
 
 #[derive(Debug, Clone)]
 // TODO: support bitstrings not bytes-aligned
+/// A bitstring from [ASN.1][ITU X.690]
+///
+/// Note: only byte-aligned bitstrings are supported.
+///
+/// [ITU X.690]: https://www.itu.int/rec/T-REC-X.690-202102-I/en
 pub struct BitString(pub Vec<u8>);
 
 impl ToASN1 for RSAPrivateKey {

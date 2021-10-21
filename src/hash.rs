@@ -1,5 +1,10 @@
+//! Cryptographic hash functions
+//!
+//! The [`sha256`] function requires feature `sha2` or `ring`.
+
 use crate::error::Error;
 
+/// SHA-256 hash
 #[cfg(feature = "sha2")]
 pub fn sha256(data: &[u8]) -> Result<[u8; 32], Error> {
     use sha2::Digest;
@@ -9,6 +14,7 @@ pub fn sha256(data: &[u8]) -> Result<[u8; 32], Error> {
     Ok(hash)
 }
 
+/// SHA-256 hash
 #[cfg(feature = "ring")]
 pub fn sha256(data: &[u8]) -> Result<[u8; 32], Error> {
     use ring::digest;

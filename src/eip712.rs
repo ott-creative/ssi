@@ -74,7 +74,7 @@ pub enum EIP712Value {
 pub struct Types {
     #[serde(rename = "EIP712Domain")]
     // Note: implicit EIP712Domain is not standard EIP-712
-    #[serde(default)]
+    #[serde(default = "eip712sig_default_domain")]
     pub eip712_domain: StructType,
     #[serde(flatten)]
     pub types: HashMap<StructName, StructType>,
@@ -449,13 +449,6 @@ lazy_static! {
               "name": "lastName",
               "type": "string"
             }
-          ],
-          // Added
-          "EIP712Domain": [
-            {
-              "name": "name",
-              "type": "string"
-            }
           ]
         })
     };
@@ -783,6 +776,13 @@ pub fn encode_data(
         }
     };
     Ok(bytes)
+}
+
+fn eip712sig_default_domain() -> StructType {
+    StructType(vec![MemberVariable {
+        name: String::from("name"),
+        type_: EIP712Type::String,
+    }])
 }
 
 impl TypedData {
@@ -2026,13 +2026,6 @@ mod tests {
                     "name": "telephone",
                     "type": "string"
                   }
-                ],
-                // Added
-                "EIP712Domain": [
-                  {
-                    "name": "name",
-                    "type": "string"
-                  }
                 ]
               },
               "primaryType": "Document"
@@ -2168,13 +2161,6 @@ mod tests {
                 },
                 {
                   "name": "lastName",
-                  "type": "string"
-                }
-              ],
-              // Added
-              "EIP712Domain": [
-                {
-                  "name": "name",
                   "type": "string"
                 }
               ]

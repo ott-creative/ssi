@@ -97,7 +97,7 @@ pub enum TypesOrURI {
     Object(Types),
 }
 
-/// Object at eip712Domain property of [Ethereum EIP712 Signature 2021](https://uport-project.github.io/ethereum-eip712-signature-2021-spec/#ethereum-eip712-signature-2021) proof object
+/// Object at eip712Domain property of [Ethereum EIP712 Signature 2021](https://w3c-ccg.github.io/ethereum-eip712-signature-2021-spec/#ethereum-eip712-signature-2021) proof object
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 #[serde(deny_unknown_fields)]
@@ -887,7 +887,7 @@ impl TypedData {
     }
 
     /// Convert linked data document and proof to TypedData according to
-    /// [EthereumEip712Signature2021](https://uport-project.github.io/ethereum-eip712-signature-2021-spec/)
+    /// [EthereumEip712Signature2021](https://w3c-ccg.github.io/ethereum-eip712-signature-2021-spec/)
     pub async fn from_document_and_options_json(
         document: &(dyn LinkedDataDocument + Sync),
         proof: &Proof,
@@ -1709,7 +1709,7 @@ mod tests {
         let typed_data = TypedData::from_document_and_options_json(&vc, &proof)
             .await
             .unwrap();
-        // https://uport-project.github.io/ethereum-eip712-signature-2021-spec/#example-4
+        // https://w3c-ccg.github.io/ethereum-eip712-signature-2021-spec/#example-5
         let expected_typed_data = json!({
           "types": {
             "EIP712Domain": [

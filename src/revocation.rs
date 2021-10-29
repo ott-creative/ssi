@@ -417,11 +417,25 @@ async fn load_resource(url: &str) -> Result<Vec<u8>, LoadResourceError> {
                 max: MAX_RESPONSE_LENGTH,
             });
         }
-        Vec::with_capacity(len)
+        #[cfg(target_arch = "wasm32")]
+        {
+            // Reqwest's WASM backend doesn't offer streamed/chunked response reading.
+            // So we cannot check the response size while reading the response.
+            // Relevant issue: https://github.com/seanmonstar/reqwest/issues/1234
+            // Instead, we will just trust that the content-length is correct,
+            // and read the body all at once.
+            resp.bytes().to_vec()
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            Vec::with_capacity(len)
+        }
     } else {
         Vec::new()
     };
 
+    // For non-WebAssembly, read the response up to the allowed maximimum size.
+    #[cfg(not(target_arch = "wasm32"))]
     while let Some(chunk) = resp
         .chunk()
         .await
@@ -436,6 +450,7 @@ async fn load_resource(url: &str) -> Result<Vec<u8>, LoadResourceError> {
         }
         bytes.append(&mut chunk.to_vec());
     }
+
     Ok(bytes)
 }
 

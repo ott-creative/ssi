@@ -125,12 +125,16 @@ pub const ESRS2020_EXTRA_CONTEXT: &str =
     "https://demo.spruceid.com/EcdsaSecp256k1RecoverySignature2020/esrs2020-extra-0.0.jsonld";
 pub const LDS_JWS2020_V1_CONTEXT: &str =
     "https://w3c-ccg.github.io/lds-jws2020/contexts/lds-jws2020-v1.json";
+pub const W3ID_JWS2020_V1_CONTEXT: &str = "https://w3id.org/security/suites/jws-2020/v1";
 pub const CITIZENSHIP_V1_CONTEXT: &str = "https://w3id.org/citizenship/v1";
 pub const VACCINATION_V1_CONTEXT: &str = "https://w3id.org/vaccination/v1";
 pub const TRACEABILITY_CONTEXT: &str = "https://w3id.org/traceability/v1";
 pub const REVOCATION_LIST_2020_V1_CONTEXT: &str = "https://w3id.org/vc-revocation-list-2020/v1";
+pub const BBS_V1_CONTEXT: &str = "https://w3id.org/security/bbs/v1";
 pub const EIP712SIG_V0_1_CONTEXT: &str = "https://demo.spruceid.com/ld/eip712sig-2021/v0.1.jsonld";
 pub const EIP712SIG_V1_CONTEXT: &str = "https://w3id.org/security/suites/eip712sig-2021/v1";
+pub const PRESENTATION_SUBMISSION_V1_CONTEXT: &str =
+    "https://identity.foundation/presentation-exchange/submission/v1";
 
 lazy_static! {
     pub static ref CREDENTIALS_V1_CONTEXT_DOCUMENT: RemoteDocument<JsonValue> = {
@@ -199,6 +203,12 @@ lazy_static! {
         let iri = Iri::new(LDS_JWS2020_V1_CONTEXT).unwrap();
         RemoteDocument::new(doc, iri)
     };
+    pub static ref W3ID_JWS2020_V1_CONTEXT_DOCUMENT: RemoteDocument<JsonValue> = {
+        let jsonld = ssi_contexts::W3ID_JWS2020_V1;
+        let doc = json::parse(jsonld).unwrap();
+        let iri = Iri::new(W3ID_JWS2020_V1_CONTEXT).unwrap();
+        RemoteDocument::new(doc, iri)
+    };
     pub static ref CITIZENSHIP_V1_CONTEXT_DOCUMENT: RemoteDocument<JsonValue> = {
         let jsonld = ssi_contexts::CITIZENSHIP_V1;
         let doc = json::parse(jsonld).unwrap();
@@ -229,10 +239,22 @@ lazy_static! {
         let iri = Iri::new(EIP712SIG_V0_1_CONTEXT).unwrap();
         RemoteDocument::new(doc, iri)
     };
+    pub static ref BBS_V1_CONTEXT_DOCUMENT: RemoteDocument<JsonValue> = {
+        let jsonld = ssi_contexts::BBS_V1;
+        let doc = json::parse(jsonld).unwrap();
+        let iri = Iri::new(BBS_V1_CONTEXT).unwrap();
+        RemoteDocument::new(doc, iri)
+    };
     pub static ref EIP712SIG_V1_CONTEXT_DOCUMENT: RemoteDocument<JsonValue> = {
         let jsonld = ssi_contexts::EIP712SIG_V1;
         let doc = json::parse(jsonld).unwrap();
         let iri = Iri::new(EIP712SIG_V1_CONTEXT).unwrap();
+        RemoteDocument::new(doc, iri)
+    };
+    pub static ref PRESENTATION_SUBMISSION_V1_CONTEXT_DOCUMENT: RemoteDocument<JsonValue> = {
+        let jsonld = ssi_contexts::PRESENTATION_SUBMISSION_V1;
+        let doc = json::parse(jsonld).unwrap();
+        let iri = Iri::new(PRESENTATION_SUBMISSION_V1_CONTEXT).unwrap();
         RemoteDocument::new(doc, iri)
     };
 }
@@ -260,6 +282,7 @@ impl Loader for StaticLoader {
                 DIF_ESRS2020_CONTEXT => Ok(DIF_ESRS2020_CONTEXT_DOCUMENT.clone()),
                 ESRS2020_EXTRA_CONTEXT => Ok(ESRS2020_EXTRA_CONTEXT_DOCUMENT.clone()),
                 LDS_JWS2020_V1_CONTEXT => Ok(LDS_JWS2020_V1_CONTEXT_DOCUMENT.clone()),
+                W3ID_JWS2020_V1_CONTEXT => Ok(W3ID_JWS2020_V1_CONTEXT_DOCUMENT.clone()),
                 CITIZENSHIP_V1_CONTEXT => Ok(CITIZENSHIP_V1_CONTEXT_DOCUMENT.clone()),
                 VACCINATION_V1_CONTEXT => Ok(VACCINATION_V1_CONTEXT_DOCUMENT.clone()),
                 TRACEABILITY_CONTEXT => Ok(TRACEABILITY_CONTEXT_DOCUMENT.clone()),
@@ -267,7 +290,11 @@ impl Loader for StaticLoader {
                     Ok(REVOCATION_LIST_2020_V1_CONTEXT_DOCUMENT.clone())
                 }
                 EIP712SIG_V0_1_CONTEXT => Ok(EIP712SIG_V0_1_CONTEXT_DOCUMENT.clone()),
+                BBS_V1_CONTEXT => Ok(BBS_V1_CONTEXT_DOCUMENT.clone()),
                 EIP712SIG_V1_CONTEXT => Ok(EIP712SIG_V1_CONTEXT_DOCUMENT.clone()),
+                PRESENTATION_SUBMISSION_V1_CONTEXT => {
+                    Ok(PRESENTATION_SUBMISSION_V1_CONTEXT_DOCUMENT.clone())
+                }
                 _ => {
                     eprintln!("unknown context {}", url);
                     Err(json_ld::ErrorCode::LoadingDocumentFailed.into())
@@ -711,7 +738,7 @@ pub fn generate_node_map(
                         node_map,
                         Some(active_graph),
                         Some(&referenced_node),
-                        Some(&property),
+                        Some(property),
                         None,
                         blank_node_id_generator,
                     )?;
@@ -1247,10 +1274,9 @@ pub fn object_to_rdf(
         None => return Err(Error::ExpectedString),
     };
     let language = match item.language {
-        Some(language) => match language.as_str() {
-            Some(language_str) => Some(language_str.to_string()),
-            None => None,
-        },
+        Some(language) => language
+            .as_str()
+            .map(|language_str| language_str.to_string()),
         None => None,
     };
     let literal;
@@ -1354,7 +1380,7 @@ pub fn canonicalize_json(value: &JsonValue) -> String {
         JsonValue::Boolean(true) => "true".to_string(),
         JsonValue::Boolean(false) => "false".to_string(),
         JsonValue::Short(short) => canonicalize_json_string(short.as_str()),
-        JsonValue::String(string) => canonicalize_json_string(&string),
+        JsonValue::String(string) => canonicalize_json_string(string),
         JsonValue::Number(_) => canonicalize_json_number(value),
         JsonValue::Array(array) => {
             let mut string = "[".to_string();
@@ -1380,7 +1406,7 @@ pub fn canonicalize_json(value: &JsonValue) -> String {
                 } else {
                     string.push(',');
                 }
-                string.push_str(&canonicalize_json_string(&key));
+                string.push_str(&canonicalize_json_string(key));
                 string.push(':');
                 string.push_str(&canonicalize_json(value));
             }
@@ -1500,14 +1526,13 @@ pub fn list_to_rdf(
     Ok(first)
 }
 
-/// <https://w3c.github.io/json-ld-api/#dom-jsonldprocessor-tordf>
-pub async fn json_to_dataset<T>(
+pub async fn expand_json<T>(
     json: &str,
     more_contexts_json: Option<&String>,
     lax: bool,
     options: Option<&JsonLdOptions>,
     loader: &mut T,
-) -> Result<DataSet, Error>
+) -> Result<Vec<JsonValue>, Error>
 where
     T: Loader<Document = JsonValue> + std::marker::Send + Sync,
 {
@@ -1529,7 +1554,7 @@ where
     }
     let mut doc = json::parse(json)?;
     if let Some(more_contexts_json) = more_contexts_json {
-        let more_contexts = json::parse(&more_contexts_json)?;
+        let more_contexts = json::parse(more_contexts_json)?;
         // Merge additional contexts into document. This is needed for serializing proofs, since
         // they typically inherit the context of the parent credential/presentation rather than
         // including their own.
@@ -1563,13 +1588,31 @@ where
     expansion_options.ordered = false;
     let expanding = doc.expand_with(base, &context, loader, expansion_options);
     let expanded_doc = expanding.await?;
+
+    let documents = expanded_doc.iter().map(|item| item.as_json()).collect();
+
+    Ok(documents)
+}
+
+/// <https://w3c.github.io/json-ld-api/#dom-jsonldprocessor-tordf>
+pub async fn json_to_dataset<T>(
+    json: &str,
+    more_contexts_json: Option<&String>,
+    lax: bool,
+    options: Option<&JsonLdOptions>,
+    loader: &mut T,
+) -> Result<DataSet, Error>
+where
+    T: Loader<Document = JsonValue> + std::marker::Send + Sync,
+{
+    let options = options.unwrap_or(&DEFAULT_JSON_LD_OPTIONS);
+    let expanded_doc = expand_json(json, more_contexts_json, lax, Some(&options), loader).await?;
     let mut node_map = Map::new();
     node_map.insert(AT_DEFAULT.to_string(), Map::new());
     let mut blank_node_id_generator = BlankNodeIdentifierGenerator::default();
     for object in expanded_doc {
-        let object_json = object.as_json();
         generate_node_map(
-            object_json,
+            object,
             &mut node_map,
             None,
             None,

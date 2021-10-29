@@ -196,7 +196,7 @@ impl EIP712Value {
             EIP712Value::Bytes(bytes) => bytes.to_vec(),
             EIP712Value::Integer(int) => int.to_be_bytes().to_vec(),
             EIP712Value::String(string) => {
-                bytes_from_hex(&string).ok_or(TypedDataHashError::ExpectedHex)?
+                bytes_from_hex(string).ok_or(TypedDataHashError::ExpectedHex)?
             }
             _ => {
                 return Err(TypedDataHashError::ExpectedBytes);
@@ -308,12 +308,12 @@ impl TryFrom<String> for EIP712Type {
             "bool" => return Ok(EIP712Type::Bool),
             _ => {}
         }
-        if string.ends_with("]") {
-            let mut parts = string.rsplitn(2, "[");
-            let amount_str = parts.next().unwrap().split("]").next().unwrap();
+        if string.ends_with(']') {
+            let mut parts = string.rsplitn(2, '[');
+            let amount_str = parts.next().unwrap().split(']').next().unwrap();
             let inner = parts.next().ok_or(TypedDataParseError::UnmatchedBracket)?;
             let base = EIP712Type::try_from(inner.to_string())?;
-            if amount_str.len() == 0 {
+            if amount_str.is_empty() {
                 return Ok(EIP712Type::Array(Box::new(base)));
             } else {
                 return Ok(EIP712Type::ArrayN(
@@ -321,12 +321,12 @@ impl TryFrom<String> for EIP712Type {
                     usize::from_str(amount_str)?,
                 ));
             }
-        } else if string.starts_with("uint") {
-            return Ok(EIP712Type::UintN(usize::from_str(&string[4..])?));
-        } else if string.starts_with("int") {
-            return Ok(EIP712Type::IntN(usize::from_str(&string[3..])?));
-        } else if string.starts_with("bytes") {
-            return Ok(EIP712Type::BytesN(usize::from_str(&string[5..])?));
+        } else if let Some(suffix) = string.strip_prefix("uint") {
+            return Ok(EIP712Type::UintN(usize::from_str(suffix)?));
+        } else if let Some(suffix) = string.strip_prefix("int") {
+            return Ok(EIP712Type::IntN(usize::from_str(suffix)?));
+        } else if let Some(suffix) = string.strip_prefix("bytes") {
+            return Ok(EIP712Type::BytesN(usize::from_str(suffix)?));
         }
         Ok(EIP712Type::Struct(string))
     }
@@ -462,6 +462,9 @@ lazy_static! {
 }
 
 impl TypesOrURI {
+    #[allow(clippy::match_single_binding)]
+    #[allow(unreachable_code)]
+    #[allow(unused_variables)]
     async fn dereference(self) -> Result<Types, DereferenceTypesError> {
         let uri = match self {
             Self::URI(string) => string,
@@ -470,10 +473,9 @@ impl TypesOrURI {
         let value = match &uri[..] {
             #[cfg(test)]
             "https://example.com/messageSchema.json" => EXAMPLE_MESSAGE_SCHEMA.clone(),
-            _ => Err(DereferenceTypesError::RemoteLoadingNotImplemented)?,
+            _ => return Err(DereferenceTypesError::RemoteLoadingNotImplemented),
         };
-        let types: Types =
-            serde_json::from_value(value).map_err(|e| DereferenceTypesError::JSON(e))?;
+        let types: Types = serde_json::from_value(value).map_err(DereferenceTypesError::JSON)?;
         Ok(types)
     }
 }
@@ -486,6 +488,7 @@ fn property_to_struct_name(property_name: &str) -> StructName {
 }
 
 /// Hash the result of [`encodeType`]
+#[allow(clippy::ptr_arg)]
 pub fn hash_type(
     struct_name: &StructName,
     struct_type: &StructType,
@@ -497,6 +500,7 @@ pub fn hash_type(
 }
 
 /// [`hashStruct`](https://github.com/ethereum/EIPs/blob/master/EIPS/eip-712.md#definition-of-hashstruct)
+#[allow(clippy::ptr_arg)]
 pub fn hash_struct(
     data: &EIP712Value,
     struct_name: &StructName,
@@ -507,6 +511,7 @@ pub fn hash_struct(
 }
 
 /// [`encodeType`](https://github.com/ethereum/EIPs/blob/master/EIPS/eip-712.md#definition-of-encodetype)
+#[allow(clippy::ptr_arg)]
 pub fn encode_type(
     struct_name: &StructName,
     struct_type: &StructType,
@@ -524,6 +529,7 @@ pub fn encode_type(
     Ok(string.into_bytes())
 }
 
+#[allow(clippy::ptr_arg)]
 fn encode_type_single(type_name: &StructName, type_: &StructType, string: &mut String) {
     string.push_str(type_name);
     string.push('(');
@@ -553,11 +559,8 @@ impl EIP712Type {
 }
 
 pub(crate) fn bytes_from_hex(s: &str) -> Option<Vec<u8>> {
-    if s.starts_with("0x") {
-        hex::decode(&s[2..]).ok()
-    } else {
-        None
-    }
+    s.strip_prefix("0x")
+        .and_then(|hex_str| hex::decode(hex_str).ok())
 }
 
 fn gather_referenced_struct_types<'a>(
@@ -570,12 +573,9 @@ fn gather_referenced_struct_types<'a>(
             use std::collections::hash_map::Entry;
             let entry = memo.entry(struct_name);
             if let Entry::Vacant(o) = entry {
-                let referenced_struct =
-                    types
-                        .get(struct_name)
-                        .ok_or(TypedDataHashError::MissingReferencedType(
-                            struct_name.to_string(),
-                        ))?;
+                let referenced_struct = types.get(struct_name).ok_or_else(|| {
+                    TypedDataHashError::MissingReferencedType(struct_name.to_string())
+                })?;
                 o.insert(referenced_struct);
                 gather_referenced_struct_types(referenced_struct, types, memo)?;
             }
@@ -589,16 +589,16 @@ fn encode_field(
     type_: &EIP712Type,
     types: &Types,
 ) -> Result<Vec<u8>, TypedDataHashError> {
-    let is_struct_or_array = match type_ {
-        EIP712Type::Struct(_) | EIP712Type::Array(_) | EIP712Type::ArrayN(_, _) => true,
-        _ => false,
-    };
-    let encoded = encode_data(&data, type_, types)?;
+    let is_struct_or_array = matches!(
+        type_,
+        EIP712Type::Struct(_) | EIP712Type::Array(_) | EIP712Type::ArrayN(_, _)
+    );
+    let encoded = encode_data(data, type_, types)?;
     if is_struct_or_array {
         let hash = keccak(&encoded).to_fixed_bytes().to_vec();
-        return Ok(hash);
+        Ok(hash)
     } else {
-        return Ok(encoded);
+        Ok(encoded)
     }
 }
 
@@ -614,7 +614,7 @@ pub fn encode_data(
             let bytes = match data {
                 EIP712Value::Bytes(bytes) => Some(bytes),
                 EIP712Value::String(string) => {
-                    bytes_opt = bytes_from_hex(&string);
+                    bytes_opt = bytes_from_hex(string);
                     bytes_opt.as_ref()
                 }
                 _ => None,
@@ -633,12 +633,12 @@ pub fn encode_data(
         }
         EIP712Type::BytesN(n) => {
             let n = *n;
-            if n < 1 || n > 32 {
+            if !(1..=32).contains(&n) {
                 return Err(TypedDataHashError::BytesLength(n));
             }
             let mut bytes = match data {
                 EIP712Value::Bytes(bytes) => Some(bytes.to_vec()),
-                EIP712Value::String(string) => bytes_from_hex(&string),
+                EIP712Value::String(string) => bytes_from_hex(string),
                 _ => None,
             }
             .ok_or(TypedDataHashError::ExpectedBytes)?;
@@ -656,7 +656,7 @@ pub fn encode_data(
             if n % 8 != 0 {
                 return Err(TypedDataHashError::TypeNotByteAligned("uint", n));
             }
-            if n < 8 || n > 256 {
+            if !(8..=256).contains(&n) {
                 return Err(TypedDataHashError::IntegerLength(n));
             }
             let int = data
@@ -670,15 +670,14 @@ pub fn encode_data(
                 return Ok(int);
             }
             // Left-pad to 256 bits
-            let padded = vec![EMPTY_32[0..(32 - len)].to_vec(), int].concat();
-            padded
+            vec![EMPTY_32[0..(32 - len)].to_vec(), int].concat()
         }
         EIP712Type::IntN(n) => {
             let n = *n;
             if n % 8 != 0 {
                 return Err(TypedDataHashError::TypeNotByteAligned("int", n));
             }
-            if n < 8 || n > 256 {
+            if !(8..=256).contains(&n) {
                 return Err(TypedDataHashError::IntegerLength(n));
             }
             let int = data
@@ -696,8 +695,7 @@ pub fn encode_data(
             static PADDING_POS: [u8; 32] = [0; 32];
             static PADDING_NEG: [u8; 32] = [0xff; 32];
             let padding = if negative { PADDING_NEG } else { PADDING_POS };
-            let padded = vec![padding[0..(32 - len)].to_vec(), int].concat();
-            padded
+            vec![padding[0..(32 - len)].to_vec(), int].concat()
         }
         EIP712Type::Bool => {
             let b = data.as_bool().ok_or(TypedDataHashError::ExpectedBoolean)?;
@@ -713,8 +711,7 @@ pub fn encode_data(
                 return Err(TypedDataHashError::ExpectedAddressLength(bytes.len()));
             }
             static PADDING: [u8; 12] = [0; 12];
-            let padded = vec![PADDING.to_vec(), bytes].concat();
-            padded
+            vec![PADDING.to_vec(), bytes].concat()
         }
         EIP712Type::Array(member_type) => {
             // Note: this implementation follows eth-sig-util
@@ -728,7 +725,7 @@ pub fn encode_data(
             };
             let mut enc = Vec::with_capacity(32 * array.len());
             for member in array {
-                let mut member_enc = encode_field(&member, member_type, types)?;
+                let mut member_enc = encode_field(member, member_type, types)?;
                 enc.append(&mut member_enc);
             }
             enc
@@ -747,18 +744,15 @@ pub fn encode_data(
             }
             let mut enc = Vec::with_capacity(32 * n);
             for member in array {
-                let mut member_enc = encode_field(&member, member_type, types)?;
+                let mut member_enc = encode_field(member, member_type, types)?;
                 enc.append(&mut member_enc);
             }
             enc
         }
         EIP712Type::Struct(struct_name) => {
-            let struct_type =
-                types
-                    .get(struct_name)
-                    .ok_or(TypedDataHashError::MissingReferencedType(
-                        struct_name.to_string(),
-                    ))?;
+            let struct_type = types.get(struct_name).ok_or_else(|| {
+                TypedDataHashError::MissingReferencedType(struct_name.to_string())
+            })?;
             let hash_map = match data {
                 EIP712Value::Struct(hash_map) => hash_map,
                 _ => {
@@ -766,7 +760,7 @@ pub fn encode_data(
                 }
             };
             let mut enc = Vec::with_capacity(32 * (struct_type.0.len() + 1));
-            let type_hash = hash_type(&struct_name, &struct_type, types)?;
+            let type_hash = hash_type(struct_name, struct_type, types)?;
             enc.append(&mut type_hash.to_vec());
             let mut keys: std::collections::HashSet<String> =
                 hash_map.keys().map(|k| k.to_owned()).collect();
@@ -803,7 +797,8 @@ impl TypedData {
         let doc_dataset_normalized = crate::urdna2015::normalize(&doc_dataset)
             .map_err(|e| TypedDataConstructionError::NormalizeDocument(e.to_string()))?;
         let mut doc_statements_normalized = doc_dataset_normalized.statements();
-        doc_statements_normalized.sort_by_cached_key(|statement| String::from(statement));
+        #[allow(clippy::redundant_closure)]
+        doc_statements_normalized.sort_by_cached_key(|x| String::from(x));
         let sigopts_dataset = proof
             .to_dataset_for_signing(Some(document))
             .await
@@ -811,7 +806,8 @@ impl TypedData {
         let sigopts_dataset_normalized = crate::urdna2015::normalize(&sigopts_dataset)
             .map_err(|e| TypedDataConstructionError::NormalizeProof(e.to_string()))?;
         let mut sigopts_statements_normalized = sigopts_dataset_normalized.statements();
-        sigopts_statements_normalized.sort_by_cached_key(|statement| String::from(statement));
+        #[allow(clippy::redundant_closure)]
+        sigopts_statements_normalized.sort_by_cached_key(|x| String::from(x));
 
         let types = Types {
             eip712_domain: StructType(vec![MemberVariable {
@@ -939,7 +935,7 @@ impl TypedData {
         let types = types_or_uri
             .dereference()
             .await
-            .map_err(|e| TypedDataConstructionJSONError::DereferenceTypes(e))?;
+            .map_err(TypedDataConstructionJSONError::DereferenceTypes)?;
         let typed_data = Self {
             types,
             primary_type,
@@ -1826,7 +1822,6 @@ mod tests {
         eprintln!("JCS: [\n{}\n]", jcs_lines);
 
         // Sign proof
-        use crate::ldp::ProofSuite;
         let bytes = typed_data.bytes().unwrap();
         let ec_params = match &jwk.params {
             crate::jwk::Params::EC(ec) => ec,
@@ -1870,10 +1865,9 @@ mod tests {
 
         let sk = k256::SecretKey::from_bytes(&sk_bytes).unwrap();
         let pk = sk.public_key();
-        let jwk = JWK::from(Params::EC(ECParams {
-            ecc_private_key: Some(Base64urlUInt(sk_bytes.to_vec())),
-            ..ECParams::try_from(&pk).unwrap()
-        }));
+        let mut ec_params = ECParams::try_from(&pk).unwrap();
+        ec_params.ecc_private_key = Some(Base64urlUInt(sk_bytes.to_vec()));
+        let jwk = JWK::from(Params::EC(ec_params));
         let hash = crate::keccak_hash::hash_public_key(&jwk).unwrap();
         assert_eq!(hash, addr);
 

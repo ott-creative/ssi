@@ -18,6 +18,9 @@ type URL = String;
 /// <https://w3c-ccg.github.io/vc-status-rl-2020/#revocation-bitstring-length>
 pub const MIN_BITSTRING_LENGTH: usize = 131072;
 
+/// Maximum size of a revocation list credential loaded using [`load_credential`].
+pub const MAX_RESPONSE_LENGTH: usize = 2097152; // 2MB
+
 const EMPTY_RLIST: &str = "H4sIAAAAAAAA_-3AMQEAAADCoPVPbQwfKAAAAAAAAAAAAAAAAAAAAOBthtJUqwBAAAA";
 
 /// Credential Status object for use in a Verifiable Credential.
@@ -359,6 +362,19 @@ pub enum LoadResourceError {
     NotFound,
     #[error("HTTP error: {0}")]
     HTTP(String),
+    /// The resource is larger than an expected/allowed maximum size.
+    #[error("Resource is too large: {size}, expected maximum: {max}")]
+    TooLarge {
+        /// The size of the resource so far, in bytes.
+        size: usize,
+        /// Maximum expected size of the resource, in bytes.
+        ///
+        /// e.g. [`MAX_RESPONSE_LENGTH`]
+        max: usize,
+    },
+    /// Unable to convert content-length header value.
+    #[error("Unable to convert content-length header value")]
+    ContentLengthConversion(#[source] std::num::TryFromIntError),
 }
 
 async fn load_resource(url: &str) -> Result<Vec<u8>, LoadResourceError> {
@@ -379,7 +395,7 @@ async fn load_resource(url: &str) -> Result<Vec<u8>, LoadResourceError> {
         .build()
         .map_err(LoadResourceError::Build)?;
     let accept = "application/json".to_string();
-    let resp = client
+    let mut resp = client
         .get(url)
         .header("Accept", accept)
         .send()
@@ -391,11 +407,35 @@ async fn load_resource(url: &str) -> Result<Vec<u8>, LoadResourceError> {
         }
         return Err(LoadResourceError::HTTP(err.to_string()));
     }
-    let bytes = resp
-        .bytes()
+    let mut bytes = if let Some(content_length) = resp.content_length() {
+        let len =
+            usize::try_from(content_length).map_err(LoadResourceError::ContentLengthConversion)?;
+        if len > MAX_RESPONSE_LENGTH {
+            // Fail early if content-length header indicates body is too large.
+            return Err(LoadResourceError::TooLarge {
+                size: len,
+                max: MAX_RESPONSE_LENGTH,
+            });
+        }
+        Vec::with_capacity(len)
+    } else {
+        Vec::new()
+    };
+
+    while let Some(chunk) = resp
+        .chunk()
         .await
         .map_err(|e| LoadResourceError::Response(e.to_string()))?
-        .to_vec();
+    {
+        let len = bytes.len() + chunk.len();
+        if len > MAX_RESPONSE_LENGTH {
+            return Err(LoadResourceError::TooLarge {
+                size: len,
+                max: MAX_RESPONSE_LENGTH,
+            });
+        }
+        bytes.append(&mut chunk.to_vec());
+    }
     Ok(bytes)
 }
 
@@ -409,6 +449,8 @@ pub enum LoadCredentialError {
 
 /// Fetch a credential from a HTTP(S) URL.
 /// The resulting verifiable credential is not yet validated or verified.
+///
+/// The size of the loaded credential must not be greater than [`MAX_RESPONSE_LENGTH`].
 pub async fn load_credential(url: &str) -> Result<Credential, LoadCredentialError> {
     let data = load_resource(url).await?;
     // TODO: support JWT-VC

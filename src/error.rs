@@ -234,6 +234,12 @@ pub enum Error {
     ExpectedArray,
     /// Expected string
     ExpectedString,
+    /// Expected string for publicKeyMultibase
+    ExpectedStringPublicKeyMultibase,
+    /// Unexpected length for publicKeyMultibase
+    MultibaseKeyLength(usize, usize),
+    /// Unexpected multibase (multicodec) key prefix multicodec
+    MultibaseKeyPrefix,
     /// Expected object with @list key
     ExpectedList,
     /// Expected array in @list
@@ -474,6 +480,9 @@ impl fmt::Display for Error {
             Error::ExpectedObject => write!(f, "Expected object"),
             Error::ExpectedArray => write!(f, "Expected array"),
             Error::ExpectedString => write!(f, "Expected string"),
+            Error::ExpectedStringPublicKeyMultibase => write!(f, "Expected string for publicKeyMultibase"),
+            Error::MultibaseKeyLength(expected, found) => write!(f, "Expected length {} for publicKeyMultibase but found {}", expected, found),
+            Error::MultibaseKeyPrefix => write!(f, "Invalid Multibase key prefix"),
             Error::ExpectedList => write!(f, "Expected object with @list key"),
             Error::ExpectedArrayList => write!(f, "Expected array in @list"),
             Error::ExpectedValue => write!(f, "Expected object with @value key"),

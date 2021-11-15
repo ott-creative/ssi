@@ -774,14 +774,13 @@ impl Credential {
     }
 
     pub fn to_jwt_claims(&self) -> Result<JWTClaims, Error> {
-        let subject = match self.credential_subject.to_single() {
-            Some(subject) => subject,
-            None => return Err(Error::InvalidSubject),
-        };
-        let subject_id: String = match subject.id.clone() {
-            Some(id) => id.into(),
-            // Credential subject must have id for JWT
-            None => return Err(Error::InvalidSubject),
+        let subject_opt = self.credential_subject.to_single().clone();
+        let subject = match subject_opt {
+            Some(subject) => match subject.id.as_ref() {
+                Some(id) => Some(StringOrURI::String(id.to_string())),
+                None => None,
+            },
+            None => None,
         };
 
         let mut vc = self.clone();
@@ -802,7 +801,7 @@ impl Credential {
                 .as_ref()
                 .map(|date| date.date_time.timestamp()),
             jwt_id: vc.id.take().map(|id| id.into()),
-            subject: Some(StringOrURI::String(subject_id)),
+            subject,
             verifiable_credential: Some(vc),
             ..Default::default()
         })
@@ -1985,6 +1984,7 @@ fn verify_proof_consistency(proof: &Proof, dataset: &DataSet) -> Result<(), Erro
     match (proof.type_.as_str(), type_iri.as_str()) {
         ("RsaSignature2018", "https://w3id.org/security#RsaSignature2018") => (),
         ("Ed25519Signature2018", "https://w3id.org/security#Ed25519Signature2018") => (),
+        ("Ed25519Signature2020", "https://w3id.org/security#Ed25519Signature2020") => (),
         ("EcdsaSecp256k1Signature2019", "https://w3id.org/security#EcdsaSecp256k1Signature2019") => (),
         ("EcdsaSecp256r1Signature2019", "https://w3id.org/security#EcdsaSecp256r1Signature2019") => (),
         ("EcdsaSecp256k1RecoverySignature2020", "https://identity.foundation/EcdsaSecp256k1RecoverySignature2020#EcdsaSecp256k1RecoverySignature2020") => (),

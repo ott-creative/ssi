@@ -120,6 +120,7 @@ pub const SECURITY_V1_CONTEXT: &str = "https://w3id.org/security/v1";
 pub const SECURITY_V2_CONTEXT: &str = "https://w3id.org/security/v2";
 pub const SCHEMA_ORG_CONTEXT: &str = "https://schema.org/";
 pub const DID_V1_CONTEXT: &str = "https://www.w3.org/ns/did/v1";
+pub const DID_V1_CONTEXT_NO_WWW: &str = "https://w3.org/ns/did/v1";
 pub const W3ID_DID_V1_CONTEXT: &str = "https://w3id.org/did/v1";
 pub const DID_RESOLUTION_V1_CONTEXT: &str = "https://w3id.org/did-resolution/v1";
 pub const DIF_ESRS2020_CONTEXT: &str = "https://identity.foundation/EcdsaSecp256k1RecoverySignature2020/lds-ecdsa-secp256k1-recovery2020-0.0.jsonld";
@@ -128,6 +129,8 @@ pub const ESRS2020_EXTRA_CONTEXT: &str =
 pub const LDS_JWS2020_V1_CONTEXT: &str =
     "https://w3c-ccg.github.io/lds-jws2020/contexts/lds-jws2020-v1.json";
 pub const W3ID_JWS2020_V1_CONTEXT: &str = "https://w3id.org/security/suites/jws-2020/v1";
+pub const W3ID_ED2020_V1_CONTEXT: &str = "https://w3id.org/security/suites/ed25519-2020/v1";
+pub const BLOCKCHAIN2021_V1_CONTEXT: &str = "https://w3id.org/security/suites/blockchain-2021/v1";
 pub const CITIZENSHIP_V1_CONTEXT: &str = "https://w3id.org/citizenship/v1";
 pub const VACCINATION_V1_CONTEXT: &str = "https://w3id.org/vaccination/v1";
 pub const TRACEABILITY_CONTEXT: &str = "https://w3id.org/traceability/v1";
@@ -211,6 +214,18 @@ lazy_static! {
         let iri = Iri::new(W3ID_JWS2020_V1_CONTEXT).unwrap();
         RemoteDocument::new(doc, iri)
     };
+    pub static ref W3ID_ED2020_V1_CONTEXT_DOCUMENT: RemoteDocument<JsonValue> = {
+        let jsonld = ssi_contexts::W3ID_ED2020_V1;
+        let doc = json::parse(jsonld).unwrap();
+        let iri = Iri::new(W3ID_ED2020_V1_CONTEXT).unwrap();
+        RemoteDocument::new(doc, iri)
+    };
+    pub static ref BLOCKCHAIN2021_V1_CONTEXT_DOCUMENT: RemoteDocument<JsonValue> = {
+        let jsonld = ssi_contexts::BLOCKCHAIN2021_V1;
+        let doc = json::parse(jsonld).unwrap();
+        let iri = Iri::new(BLOCKCHAIN2021_V1_CONTEXT).unwrap();
+        RemoteDocument::new(doc, iri)
+    };
     pub static ref CITIZENSHIP_V1_CONTEXT_DOCUMENT: RemoteDocument<JsonValue> = {
         let jsonld = ssi_contexts::CITIZENSHIP_V1;
         let doc = json::parse(jsonld).unwrap();
@@ -279,12 +294,16 @@ impl Loader for StaticLoader {
                 SECURITY_V1_CONTEXT => Ok(SECURITY_V1_CONTEXT_DOCUMENT.clone()),
                 SECURITY_V2_CONTEXT => Ok(SECURITY_V2_CONTEXT_DOCUMENT.clone()),
                 SCHEMA_ORG_CONTEXT => Ok(SCHEMA_ORG_CONTEXT_DOCUMENT.clone()),
-                DID_V1_CONTEXT | W3ID_DID_V1_CONTEXT => Ok(DID_V1_CONTEXT_DOCUMENT.clone()),
+                DID_V1_CONTEXT | DID_V1_CONTEXT_NO_WWW | W3ID_DID_V1_CONTEXT => {
+                    Ok(DID_V1_CONTEXT_DOCUMENT.clone())
+                }
                 DID_RESOLUTION_V1_CONTEXT => Ok(DID_RESOLUTION_V1_CONTEXT_DOCUMENT.clone()),
                 DIF_ESRS2020_CONTEXT => Ok(DIF_ESRS2020_CONTEXT_DOCUMENT.clone()),
                 ESRS2020_EXTRA_CONTEXT => Ok(ESRS2020_EXTRA_CONTEXT_DOCUMENT.clone()),
                 LDS_JWS2020_V1_CONTEXT => Ok(LDS_JWS2020_V1_CONTEXT_DOCUMENT.clone()),
                 W3ID_JWS2020_V1_CONTEXT => Ok(W3ID_JWS2020_V1_CONTEXT_DOCUMENT.clone()),
+                W3ID_ED2020_V1_CONTEXT => Ok(W3ID_ED2020_V1_CONTEXT_DOCUMENT.clone()),
+                BLOCKCHAIN2021_V1_CONTEXT => Ok(BLOCKCHAIN2021_V1_CONTEXT_DOCUMENT.clone()),
                 CITIZENSHIP_V1_CONTEXT => Ok(CITIZENSHIP_V1_CONTEXT_DOCUMENT.clone()),
                 VACCINATION_V1_CONTEXT => Ok(VACCINATION_V1_CONTEXT_DOCUMENT.clone()),
                 TRACEABILITY_CONTEXT => Ok(TRACEABILITY_CONTEXT_DOCUMENT.clone()),

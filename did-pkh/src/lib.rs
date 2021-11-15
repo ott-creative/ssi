@@ -1091,9 +1091,21 @@ mod tests {
         )
         .await;
 
+        // eth/epsig
+        credential_prove_verify_did_pkh(
+            key_secp256k1_eip712sig.clone(),
+            other_key_secp256k1.clone(),
+            "eip155",
+            "#blockchainAccountId",
+            &ssi::ldp::EthereumPersonalSignature2021,
+            None,
+            None,
+        )
+        .await;
+
         // eth/Eip712
         let eip712_domain: ssi::eip712::ProofInfo = serde_json::from_value(json!({
-          "messageSchema": {
+          "types": {
             "EIP712Domain": [
               { "name": "name", "type": "string" }
             ],
@@ -1123,7 +1135,7 @@ mod tests {
         }))
         .unwrap();
         let vp_eip712_domain: ssi::eip712::ProofInfo = serde_json::from_value(json!({
-          "messageSchema": {
+          "types": {
             "EIP712Domain": [
               { "name": "name", "type": "string" }
             ],
@@ -1157,7 +1169,7 @@ mod tests {
             "EIP712Info": [
               { "name": "domain", "type": "EIP712Domain" },
               { "name": "primaryType", "type": "string" },
-              { "name": "messageSchema", "type": "Types" },
+              { "name": "types", "type": "Types" },
             ],
             "Types": [
               { "name": "EIP712Domain", "type": "Type[]" },

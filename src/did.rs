@@ -180,8 +180,8 @@ pub struct Document {
     /// document (deprecated in favor of `verificationMethod`).
     pub public_key: Option<Vec<VerificationMethod>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    /// `service` property of a DID document, epressing
-    /// [services](https://www.w3.org/TR/did-core/#services).
+    /// `service` property of a DID document, expressing
+    /// [services](https://www.w3.org/TR/did-core/#services), generally as endpoints.
     pub service: Option<Vec<Service>>,
     /// [Linked data proof](https://w3c-ccg.github.io/ld-proofs/#linked-data-proof-overview) over a
     /// DID document.

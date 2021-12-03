@@ -944,7 +944,10 @@ impl ProofSuite for EcdsaSecp256k1RecoverySignature2020 {
             .as_ref()
             .ok_or(Error::MissingVerificationMethod)?;
         let vm = resolve_vm(verification_method, resolver).await?;
-        if vm.type_ != "EcdsaSecp256k1RecoveryMethod2020" {
+        if vm.type_ != "EcdsaSecp256k1RecoveryMethod2020"
+            && vm.type_ != "EcdsaSecp256k1VerificationKey2019"
+            && vm.type_ != "JsonWebKey2020"
+        {
             return Err(Error::VerificationMethodMismatch);
         }
         let message = to_jws_payload(document, proof).await?;
@@ -1396,17 +1399,7 @@ impl ProofSuite for EthereumEip712Signature2021 {
             x509_thumbprint_sha1: None,
             x509_thumbprint_sha256: None,
         };
-        // Verify using eiher publicKeyJwk or blockchainAccountId.
-        if let Some(vm_jwk) = vm.public_key_jwk {
-            // If VM has publicKey, use that to veify the signature.
-            let mut dec_sig = dec_sig;
-            dec_sig[64] -= 27;
-            crate::jws::verify_bytes(Algorithm::ES256KR, &bytes, &vm_jwk, &dec_sig)?;
-        } else {
-            let account_id_str = vm.blockchain_account_id.ok_or(Error::MissingAccountId)?;
-            let account_id = BlockchainAccountId::from_str(&account_id_str)?;
-            account_id.verify(&jwk)?;
-        }
+        vm.match_jwk(&jwk)?;
         Ok(Default::default())
     }
 }
@@ -2307,6 +2300,97 @@ mod tests {
             .unwrap();
     }
     */
+
+    #[async_std::test]
+    #[cfg(all(feature = "secp256k1", feature = "keccak-hash"))]
+    async fn esrs2020() {
+        use crate::did::Document;
+        use crate::did_resolve::{
+            DocumentMetadata, ResolutionInputMetadata, ResolutionMetadata, ERROR_NOT_FOUND,
+            TYPE_DID_LD_JSON,
+        };
+        use crate::vc::Credential;
+
+        struct ExampleResolver;
+
+        const EXAMPLE_123_ID: &str = "did:example:123";
+        const EXAMPLE_123_JSON: &'static str = include_str!("../tests/esrs2020-did.jsonld");
+
+        #[async_trait]
+        impl DIDResolver for ExampleResolver {
+            async fn resolve(
+                &self,
+                did: &str,
+                _input_metadata: &ResolutionInputMetadata,
+            ) -> (
+                ResolutionMetadata,
+                Option<Document>,
+                Option<DocumentMetadata>,
+            ) {
+                if did == EXAMPLE_123_ID {
+                    let doc = match Document::from_json(EXAMPLE_123_JSON) {
+                        Ok(doc) => doc,
+                        Err(err) => {
+                            return (
+                                ResolutionMetadata::from_error(&format!("JSON Error: {:?}", err)),
+                                None,
+                                None,
+                            );
+                        }
+                    };
+                    (
+                        ResolutionMetadata {
+                            content_type: Some(TYPE_DID_LD_JSON.to_string()),
+                            ..Default::default()
+                        },
+                        Some(doc),
+                        Some(DocumentMetadata::default()),
+                    )
+                } else {
+                    (ResolutionMetadata::from_error(ERROR_NOT_FOUND), None, None)
+                }
+            }
+
+            async fn resolve_representation(
+                &self,
+                did: &str,
+                _input_metadata: &ResolutionInputMetadata,
+            ) -> (ResolutionMetadata, Vec<u8>, Option<DocumentMetadata>) {
+                if did == EXAMPLE_123_ID {
+                    let vec = EXAMPLE_123_JSON.as_bytes().to_vec();
+                    (
+                        ResolutionMetadata {
+                            error: None,
+                            content_type: Some(TYPE_DID_LD_JSON.to_string()),
+                            property_set: None,
+                        },
+                        vec,
+                        Some(DocumentMetadata::default()),
+                    )
+                } else {
+                    (
+                        ResolutionMetadata::from_error(ERROR_NOT_FOUND),
+                        Vec::new(),
+                        None,
+                    )
+                }
+            }
+        }
+
+        let vc_str = include_str!("../tests/esrs2020-vc.jsonld");
+        let vc = Credential::from_json(vc_str).unwrap();
+        let mut n_proofs = 0;
+        for proof in vc.proof.iter().flatten() {
+            n_proofs += 1;
+            let resolver = ExampleResolver;
+            let warnings = EcdsaSecp256k1RecoverySignature2020
+                .verify(&proof, &vc, &resolver)
+                .await
+                .unwrap();
+            assert!(warnings.is_empty());
+        }
+        assert_eq!(n_proofs, 3);
+    }
 
     #[async_std::test]
     async fn ed2020() {

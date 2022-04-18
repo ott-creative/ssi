@@ -142,13 +142,13 @@ pub const PRESENTATION_SUBMISSION_V1_CONTEXT: &str =
     "https://identity.foundation/presentation-exchange/submission/v1";
 pub const VDL_V1_CONTEXT: &str = "https://w3id.org/vdl/v1";
 pub const WALLET_V1_CONTEXT: &str = "https://w3id.org/wallet/v1";
-pub const ADULT_CONTEXT: &str = "https://credential.codegene.xyz/context/adult.jsonld";
+pub const CREDENTIAL_CONTEXT: &str = "https://credential.codegene.xyz/context/credential.jsonld";
 
 lazy_static! {
-    pub static ref ADULT_CONTEXT_DOCUMENT: RemoteDocument<JsonValue> = {
-        let jsonld = ssi_contexts::ADULT;
+    pub static ref CREDENTIAL_CONTEXT_DOCUMENT: RemoteDocument<JsonValue> = {
+        let jsonld = ssi_contexts::CREDENTIAL;
         let doc = json::parse(jsonld).unwrap();
-        let iri = Iri::new(ADULT_CONTEXT).unwrap();
+        let iri = Iri::new(CREDENTIAL_CONTEXT).unwrap();
         RemoteDocument::new(doc, iri)
     };
     pub static ref CREDENTIALS_V1_CONTEXT_DOCUMENT: RemoteDocument<JsonValue> = {
@@ -307,7 +307,7 @@ impl Loader for StaticLoader {
         let url: IriBuf = url.into();
         async move {
             match url.as_str() {
-                ADULT_CONTEXT => Ok(ADULT_CONTEXT_DOCUMENT.clone()),
+                CREDENTIAL_CONTEXT => Ok(CREDENTIAL_CONTEXT_DOCUMENT.clone()),
                 CREDENTIALS_V1_CONTEXT => Ok(CREDENTIALS_V1_CONTEXT_DOCUMENT.clone()),
                 CREDENTIALS_EXAMPLES_V1_CONTEXT => {
                     Ok(CREDENTIALS_EXAMPLES_V1_CONTEXT_DOCUMENT.clone())

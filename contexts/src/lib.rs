@@ -55,4 +55,4 @@ pub const EIP712VM: &str = include_str!("../eip712vm.jsonld");
 pub const EPSIG_V0_1: &str = include_str!("../epsig-v0.1.jsonld");
 pub const SOLVM: &str = include_str!("../solvm.jsonld");
 pub const ALEOVM: &str = include_str!("../aleovm.jsonld");
-pub const ADULT: &str = include_str!("../adult.jsonld");
+pub const CREDENTIAL: &str = include_str!("../credential.jsonld");

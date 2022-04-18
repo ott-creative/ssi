@@ -1,6 +1,0 @@
-{
-  "@context": {
-    "email": "https://credential.codegene.xyz/vocab.html#email",
-    "isAdult": "https://credential.codegene.xyz/vocab.html#isAdult"
-  }
-}
